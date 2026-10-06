@@ -134,7 +134,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     <div class="grp">
       <div><span class="k s">👑 スコア:</span> <span class="v" data-score>0</span></div>
       <div><span class="k l">⬆ Lv:</span> <span class="v" data-level>1</span></div>
-      <div><span class="k st">🗺 ステージ:</span> <span class="v" data-stage>1</span></div>
+      <div><span class="k st">ステージ:</span> <span class="v" data-stage>1</span></div>
     </div>
     <div class="tk-combo tk-hidden" data-combo><span class="n">0</span> れんぞく！</div>
     <div class="tk-warn tk-hidden" data-boss>⚠️ ボス出現中！ ⚠️</div>
@@ -1066,6 +1066,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       return;
     }
     gameState = 'STAGECLEAR';
+    bossWarn.classList.add('tk-hidden');
     q('[data-stage-word]').textContent = `ステージ${stage}のボスを倒した！ つぎは もっと強いぞ。`;
     q('[data-stage-score]').textContent = String(score);
     showMenu('stageclear');
