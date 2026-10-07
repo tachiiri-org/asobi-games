@@ -12,6 +12,10 @@
 // 点は「たおした かず」。かいそうが すすむほど 相手が 強くなるので、上に いくほど
 // 1体が 重い。きえる 途中が 無いので 置き場（ctx.save）は 使わない——1回の 遊びが
 // その場で 終わる かたち。
+//
+// まほうに 使う 数（MP）は 持たない。残りを かぞえる ものを 置くと、えらぶ 遊びが
+// やりくりの 遊びに なる。ここで えらぶのは「残りが あるか」ではなく「目の前の
+// 相手に どれが 合うか」——かたい 相手には まほう、柔らかい 相手には けん。
 
 import type { GameMount } from './types';
 
@@ -113,7 +117,6 @@ const enemyOf = (floor: number): Enemy => {
 type Spell = {
   readonly id: string;
   readonly name: string;
-  readonly mp: number;
   /** つかえるように なる レベル。 */
   readonly lv: number;
   readonly note: string;
@@ -122,13 +125,17 @@ type Spell = {
 /**
  * まほう。
  *
+ * つかうのに 何も 要らない。数を かぞえる ものを 持つと、小さい子には
+ * 「えらぶ」より「やりくり」の 遊びに なってしまう——ここで えらぶのは
+ * 残りの 数ではなく、目の前の 相手に どれが 合うか。
+ *
  * こうげきの まほうは あいての ぼうぎょを 半分しか 見ない。かたい 相手には
  * まほうの ほうが 速い——「たたかう」だけでは すすまない 相手を 置くための 道。
  */
 const SPELLS: readonly Spell[] = [
-  { id: 'fire', name: 'ファイア', mp: 3, lv: 1, note: 'ぼうぎょを はんぶん むしして もやす' },
-  { id: 'heal', name: 'ヒール', mp: 4, lv: 2, note: 'HP を 40% ぶん なおす' },
-  { id: 'bolt', name: 'いかずち', mp: 7, lv: 4, note: 'ぼうぎょを ぜんぶ むしして つらぬく' },
+  { id: 'fire', name: 'ファイア', lv: 1, note: 'ぼうぎょを はんぶん むしして もやす' },
+  { id: 'heal', name: 'ヒール', lv: 2, note: 'HP を 40% ぶん なおす' },
+  { id: 'bolt', name: 'いかずち', lv: 4, note: 'ぼうぎょを ぜんぶ むしして つらぬく' },
 ];
 
 type Phase = 'start' | 'input' | 'spell' | 'busy' | 'over';
@@ -175,11 +182,9 @@ const CSS = `
 .bt-gauge{display:flex;align-items:center;gap:6px}
 .bt-gauge .k{width:2.1rem;font-weight:700}
 .bt-gauge .k.hp{color:#4ade80}
-.bt-gauge .k.mp{color:#60a5fa}
 .bt-gauge .t{flex:1;height:9px;background:#1f2937;border-radius:999px;overflow:hidden}
 .bt-gauge .t i{display:block;height:100%;transition:width .3s}
 .bt-gauge .t i.hp{background:#22c55e}
-.bt-gauge .t i.mp{background:#3b82f6}
 .bt-gauge .n{width:4.6rem;text-align:right;font-family:ui-monospace,monospace}
 .bt-stat{display:flex;gap:10px;font-size:.72rem;color:#cbd5e1;margin-top:4px}
 .bt-log{font-size:.8rem;line-height:1.55;min-height:4.6em;white-space:pre-wrap}
@@ -234,9 +239,6 @@ export const mountBattle: GameMount = (host, ctx) => {
         <div class="bt-gauge"><span class="k hp">HP</span>
           <span class="t"><i class="hp" data-myhp style="width:100%"></i></span>
           <span class="n" data-myhpn>40/40</span></div>
-        <div class="bt-gauge"><span class="k mp">MP</span>
-          <span class="t"><i class="mp" data-mymp style="width:100%"></i></span>
-          <span class="n" data-mympn>8/8</span></div>
       </div>
     </div>
     <div class="bt-stat">
@@ -254,10 +256,10 @@ export const mountBattle: GameMount = (host, ctx) => {
       <p class="bt-lead"><b>コマンドバトル</b><br>でてくる モンスターを 1体ずつ たおして、うえの かいそうへ すすもう。</p>
       <ul class="bt-how">
         <li><b>たたかう</b>… けんで きる。あいての ぼうぎょが たかいと とおりにくい</li>
-        <li><b>まほう</b>… MP を つかう。かたい あいてには こちらが はやい</li>
-        <li><b>ぼうぎょ</b>… ダメージ はんぶん。MP が 2 もどる</li>
+        <li><b>まほう</b>… いつでも つかえる。かたい あいてには こちらが はやい</li>
+        <li><b>ぼうぎょ</b>… つぎに うける ダメージが はんぶんに なる</li>
         <li><b>やくそう</b>… HP を 30 なおす。5かいそう ごとに 1つ もらえる</li>
-        <li>レベルが あがると HP も MP も ぜんぶ もどる。4で <b>いかずち</b>を おぼえる</li>
+        <li>レベルが あがると HP が ぜんぶ もどる。4で <b>いかずち</b>を おぼえる</li>
       </ul>
       <div class="bt-cmds"><button class="bt-cmd back" style="background:#dc2626;border-bottom-color:#991b1b" data-begin>はじめる</button></div>
     </div>
@@ -267,7 +269,7 @@ export const mountBattle: GameMount = (host, ctx) => {
     <div class="bt-cmds">
       <button class="bt-cmd" data-do="fight">たたかう</button>
       <button class="bt-cmd magic" data-do="magic">まほう</button>
-      <button class="bt-cmd guard" data-do="guard">ぼうぎょ<span class="sub">MP +2</span></button>
+      <button class="bt-cmd guard" data-do="guard">ぼうぎょ<span class="sub">ダメージ はんぶん</span></button>
       <button class="bt-cmd item" data-do="herb">やくそう<span class="sub" data-herbn>のこり 2</span></button>
     </div>
   </div>
@@ -346,16 +348,22 @@ export const mountBattle: GameMount = (host, ctx) => {
   };
 
   // ── 状態
+  /**
+   * はじまりの 数。
+   *
+   * ここ1か所から 画面の はじめの 表示も、「もういちど」の 戻しも 取る。
+   * 2か所に 書くと、片方だけ 直したときに、出ている 数と 遊んでいる 数が ずれる。
+   */
+  const START = { maxHp: 40, atk: 10, def: 4, nextExp: 8, herbs: 2 } as const;
+
   let lv = 1;
-  let maxHp = 40;
-  let hp = 40;
-  let maxMp = 8;
-  let mp = 8;
-  let atk = 10;
-  let def = 4;
+  let maxHp: number = START.maxHp;
+  let hp: number = START.maxHp;
+  let atk: number = START.atk;
+  let def: number = START.def;
   let exp = 0;
-  let nextExp = 8;
-  let herbs = 2;
+  let nextExp: number = START.nextExp;
+  let herbs: number = START.herbs;
   let floor = 1;
   let killed = 0;
   /** この 手番、ぼうぎょを えらんだか。あいての こうげきを 半分に する。 */
@@ -407,17 +415,14 @@ export const mountBattle: GameMount = (host, ctx) => {
     }
     q('[data-ehp]').style.width = `${Math.max(0, (enemy.hp / enemy.maxHp) * 100)}%`;
     q('[data-myhp]').style.width = `${Math.max(0, (hp / maxHp) * 100)}%`;
-    q('[data-mymp]').style.width = `${Math.max(0, (mp / maxMp) * 100)}%`;
     q('[data-myhpn]').textContent = `${hp}/${maxHp}`;
-    q('[data-mympn]').textContent = `${mp}/${maxMp}`;
     q('[data-lv]').textContent = String(lv);
     q('[data-atk]').textContent = String(atk);
     q('[data-def]').textContent = String(def);
     q('[data-next]').textContent = String(Math.max(0, nextExp - exp));
     q('[data-herbn]').textContent = `のこり ${herbs}`;
     (q('[data-do="herb"]') as HTMLButtonElement).disabled = herbs <= 0 || phase !== 'input';
-    (q('[data-do="magic"]') as HTMLButtonElement).disabled =
-      phase !== 'input' || !SPELLS.some((s) => lv >= s.lv && mp >= s.mp);
+    (q('[data-do="magic"]') as HTMLButtonElement).disabled = phase !== 'input';
     (q('[data-do="fight"]') as HTMLButtonElement).disabled = phase !== 'input';
     (q('[data-do="guard"]') as HTMLButtonElement).disabled = phase !== 'input';
   };
@@ -466,7 +471,6 @@ export const mountBattle: GameMount = (host, ctx) => {
   };
 
   const doSpell = (spell: Spell): void => {
-    mp -= spell.mp;
     if (spell.id === 'heal') {
       const back = Math.round(maxHp * 0.4);
       const before = hp;
@@ -490,7 +494,6 @@ export const mountBattle: GameMount = (host, ctx) => {
 
   const doGuard = (): void => {
     guarding = true;
-    mp = Math.min(maxMp, mp + 2);
     play('guard');
     say('みを かまえた。つぎの ダメージは はんぶん。');
     draw();
@@ -538,15 +541,13 @@ export const mountBattle: GameMount = (host, ctx) => {
     // しまい、うまい・へたの ちがいが 出なくなる。
     nextExp = Math.round(nextExp * 1.35);
     maxHp += 8;
-    maxMp += 2;
     atk += 3;
     def += 1;
     // レベルが 上がったら 全部 なおす。えらびかたを まちがえた 回を、つぎの かいそうまで
     // ひきずらない——ひきずると、ここで もう 勝てないと 決まってしまう 回ができる。
     hp = maxHp;
-    mp = maxMp;
     play('levelup');
-    say(`レベルが ${lv}に あがった！ HP と MP が ぜんぶ もどった。`);
+    say(`レベルが ${lv}に あがった！ HP が ぜんぶ もどった。`);
     const unlocked = SPELLS.find((s) => s.lv === lv);
     if (unlocked) say(`${unlocked.name}を おぼえた！`);
     draw();
@@ -625,7 +626,7 @@ export const mountBattle: GameMount = (host, ctx) => {
     draw();
   }
 
-  /** まほうの 一覧。おぼえた ものだけ 出し、MP が たりない ものは おせなく する。 */
+  /** まほうの 一覧。おぼえた ものだけ 出す。 */
   const openSpells = (): void => {
     phase = 'spell';
     const list = q('[data-spelllist]');
@@ -634,9 +635,8 @@ export const mountBattle: GameMount = (host, ctx) => {
       if (lv < spell.lv) continue;
       const btn = document.createElement('button');
       btn.className = 'bt-cmd magic';
-      btn.disabled = mp < spell.mp;
       const name = document.createElement('span');
-      name.textContent = `${spell.name}（MP ${spell.mp}）`;
+      name.textContent = spell.name;
       const sub = document.createElement('span');
       sub.className = 'sub';
       sub.textContent = spell.note;
@@ -666,8 +666,11 @@ export const mountBattle: GameMount = (host, ctx) => {
 
   const begin = (): void => {
     initAudio();
-    lv = 1; maxHp = 40; hp = 40; maxMp = 8; mp = 8; atk = 8; def = 4;
-    exp = 0; nextExp = 10; herbs = 2; floor = 1; killed = 0;
+    lv = 1;
+    maxHp = START.maxHp; hp = START.maxHp;
+    atk = START.atk; def = START.def;
+    exp = 0; nextExp = START.nextExp; herbs = START.herbs;
+    floor = 1; killed = 0;
     guarding = false;
     enemy = enemyOf(1);
     lines.length = 0;
