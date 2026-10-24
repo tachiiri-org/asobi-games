@@ -850,8 +850,11 @@ const CSS = `
 .pd-slot input[type=radio]{flex:0 0 auto;width:18px;height:18px;accent-color:#b45309;margin:0}
 .pd-slot select{flex:1 1 auto;min-width:0;background:#fff;border:2px solid #b45309;
   border-radius:9px;padding:4px 5px;font:inherit;font-size:.76rem;color:#1f2937}
-.pd-slot select.mv{flex:1 1 100%;order:5;margin-left:23px}
-.pd-slot .x{order:4}
+.pd-mvrow{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.pd-mvrow input[type=radio]{flex:0 0 auto;width:17px;height:17px;accent-color:#b45309;margin:0}
+.pd-mvrow .k{flex:0 0 2.6rem;font-size:.72rem;color:#78350f;font-weight:700}
+.pd-mvrow select{flex:1 1 auto;min-width:0;background:#fff;border:2px solid #b45309;
+  border-radius:9px;padding:4px 6px;font:inherit;font-size:.78rem;color:#1f2937}
 .pd-slot input.lv{flex:0 0 2.9rem;background:#fff;border:2px solid #b45309;border-radius:9px;
   padding:4px 3px;font:inherit;font-size:.76rem;text-align:center;color:#1f2937}
 .pd-slot .x{flex:0 0 auto;background:none;border:0;color:#b45309;font:inherit;font-size:.9rem;
@@ -899,9 +902,18 @@ const CSS = `
 .pd-mx table{border-collapse:collapse;font-size:.68rem;min-width:100%}
 .pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:3px 4px;text-align:center;white-space:nowrap}
 .pd-mx th{color:#78350f;font-weight:700;background:#fffdf7}
-.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:1;max-width:7.5rem;
-  overflow:hidden;text-overflow:ellipsis}
-.pd-mx th.rh small{display:block;color:#9ca3af;font-weight:400}
+.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:7rem;max-width:9.5rem;
+  white-space:normal}
+.pd-mx th.rh .nm{font-weight:700}
+.pd-mx th.rh .mv{display:block;width:100%;text-align:left;background:none;border:0;padding:1px 0;
+  font:inherit;font-size:.7rem;font-weight:700;color:#b45309;cursor:pointer}
+.pd-mx th.rh .mv:active{opacity:.6}
+.pd-mx th.rh .mvlist{display:flex;flex-direction:column;gap:2px;margin-top:3px;background:#fff7ed;
+  border:2px solid #b45309;border-radius:8px;padding:3px}
+.pd-mx th.rh .mvlist button{background:none;border:0;padding:3px 5px;font:inherit;font-size:.68rem;
+  color:#78350f;text-align:left;cursor:pointer;border-radius:5px}
+.pd-mx th.rh .mvlist button:active{background:#fde68a}
+.pd-mx th.rh .mvlist .none{font-size:.66rem;color:#9ca3af;padding:3px 5px}
 .pd-mx td{cursor:pointer;font-variant-numeric:tabular-nums}
 .pd-mx td b{display:block;font-size:.78rem;color:#78350f}
 .pd-mx td small{color:#6b7280}
@@ -1127,10 +1139,13 @@ const numInput = (cls: string, value: string, min: number, max: number): HTMLInp
  * いまの作品から 来た人が いちばん まちがえる ところ。
  */
 const fillMoves = (node: HTMLSelectElement, value: string): void => {
+  const none = el('option');
+  none.value = '';
+  none.textContent = '—（まだ きめて いない）';
   const own = el('option');
   own.value = OWN;
   own.textContent = '✏️ じぶんで かく';
-  const parts: HTMLElement[] = [own];
+  const parts: HTMLElement[] = [none, own];
   for (const t of TYPE_ORDER) {
     const group = el('optgroup');
     group.label = `${TYPE_NAME[t]}（${isPhysical(t) ? '物理' : '特殊'}）`;
@@ -1160,7 +1175,6 @@ type Slot = {
   readonly radio: HTMLInputElement;
   readonly monSel: HTMLSelectElement;
   readonly levelInput: HTMLInputElement;
-  readonly moveSel: HTMLSelectElement;
   readonly del: HTMLButtonElement;
   /** 「じぶんで かく」を えらんだ ときの 中身。 */
   own: Mon;
@@ -1168,10 +1182,14 @@ type Slot = {
   /** ゲームの がめんを 見て 書いた すうじ。HP・こうげき・ぼうぎょ・とくこう・とくぼう。 */
   typed: [number, number, number, number, number];
   typedTouched: boolean;
-  ownMoveName: string;
-  ownMoveType: TypeKey;
-  /** 手で 書きかえた いりょく。null なら わざの ままの いりょく。 */
-  power: number | null;
+  /** わざ4つ。MOVES の 添字か OWN。まだ 決めて いなければ 空。 */
+  moves: string[];
+  /** いま つかう わざ（0〜3）。表の 名前の 下に 出て いる もの。 */
+  active: number;
+  /** わざ4つ ぶんの「じぶんで かく」の 中身。 */
+  ownMoves: { name: string; type: TypeKey }[];
+  /** わざ4つ ぶんの、手で 書きかえた いりょく。null なら わざの ままの いりょく。 */
+  powers: (number | null)[];
   /** もちもの。ITEMS の 添字。持って いなければ 空。 */
   item: string;
   /** 直前に えらんで いた 図鑑の ポケモン。「じぶんで かく」の 下じきに 使う。 */
@@ -1220,17 +1238,33 @@ const itemWord = (item: Item | null, mon: Mon): string => {
   return `${where} が ${item.mul ?? 1}倍に なる。`;
 };
 
-const moveOf = (slot: Slot): Move => {
-  if (slot.moveSel.value === OWN) {
+/** 決めて ある わざの 番号（0〜3）だけ。1つも 無ければ 空。 */
+const filledMoves = (slot: Slot): number[] =>
+  [0, 1, 2, 3].filter((i) => slot.moves[i] !== '' && slot.moves[i] !== undefined);
+
+/** いま つかう わざの 番号。消して あれば、決めて ある いちばん 前の ものに 落ちる。 */
+const activeIndex = (slot: Slot): number => {
+  const filled = filledMoves(slot);
+  if (filled.includes(slot.active)) return slot.active;
+  return filled[0] ?? slot.active;
+};
+
+const moveAt = (slot: Slot, i: number): Move => {
+  const value = slot.moves[i] ?? '';
+  const power = slot.powers[i] ?? null;
+  if (value === OWN) {
+    const own = slot.ownMoves[i];
     return {
-      name: slot.ownMoveName.trim() || 'じぶんの わざ',
-      type: slot.ownMoveType,
-      power: slot.power ?? 80,
+      name: own?.name.trim() || 'じぶんの わざ',
+      type: own?.type ?? 'normal',
+      power: power ?? 80,
     };
   }
-  const m = MOVES[Number(slot.moveSel.value)] ?? MOVES[0]!;
-  return slot.power === null ? m : { ...m, power: slot.power };
+  const m = MOVES[Number(value)] ?? MOVES[0]!;
+  return power === null ? m : { ...m, power };
 };
+
+const moveOf = (slot: Slot): Move => moveAt(slot, activeIndex(slot));
 
 /** しゅぞくちから 出した、その レベルの 5つ。ゲームの すうじの 下じきにも 使う。 */
 const computedStats = (
@@ -1273,6 +1307,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     readonly ownBase: readonly HTMLInputElement[];
     readonly types: HTMLElement;
     readonly seed: HTMLElement;
+    readonly moveRadios: readonly HTMLInputElement[];
+    readonly moveSels: readonly HTMLSelectElement[];
     readonly moveWrap: HTMLElement;
     readonly moveName: HTMLInputElement;
     readonly moveType: HTMLSelectElement;
@@ -1303,6 +1339,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
    * 表が 2つ あるのに むきが 1つ、という ちぐはぐな かたちに なる。
    */
   let direction: SideKey = 'mine';
+  /** 表の 中で わざの えらびかたを ひらいて いる 1匹。ひらいて いなければ null。 */
+  let picker: Slot | null = null;
   const other = (side: SideKey): SideKey => (side === 'mine' ? 'theirs' : 'mine');
   const attacker = (): SideKey => direction;
   const defender = (): SideKey => other(direction);
@@ -1429,22 +1467,22 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     const monSel = el('select');
     fillMons(monSel, monOptions, monValue);
     const levelInput = numInput('lv', String(level), 1, 100);
-    const moveSel = el('select', 'mv');
-    fillMoves(moveSel, moveValue);
     const del = el('button', 'x', '✕');
     del.type = 'button';
-    wrap.append(radio, monSel, levelInput, moveSel, del);
+    wrap.append(radio, monSel, levelInput, del);
 
     const base = MON_BY_NO.get(monValue) ?? MONS[0]!;
     const slot: Slot = {
-      wrap, radio, monSel, levelInput, moveSel, del,
+      wrap, radio, monSel, levelInput, del,
       own: { no: 0, name: 'じぶんの ポケモン', types: ['normal'], base: [100, 100, 100, 100, 100] },
       ownTouched: false,
       typed: computedStats(base, level, 31),
       typedTouched: false,
-      ownMoveName: 'じぶんの わざ',
-      ownMoveType: 'normal',
-      power: null,
+      // わざは 4つ まで。はじめは 1つめ だけ 決まって いて、のこりは 空。
+      moves: [moveValue, '', '', ''],
+      active: 0,
+      ownMoves: [0, 1, 2, 3].map(() => ({ name: 'じぶんの わざ', type: 'normal' as TypeKey })),
+      powers: [null, null, null, null],
       item: '',
       lastReal: base,
     };
@@ -1572,13 +1610,46 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     item.addEventListener('input', onItem);
     item.addEventListener('change', onItem);
 
+    // わざは 4つ まで。まるは「いま つかう わざ」で、表の 名前の 下に 出る ものと
+    // 同じ。いりょくと「じぶんで かく」は、その まるが ついた 1つに かかる——
+    // 4つぶん ならべると、どの わざを 直して いるのか 見失う。
+    const moveRadios: HTMLInputElement[] = [];
+    const moveSels: HTMLSelectElement[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const line = el('div', 'pd-mvrow');
+      const mark = el('input');
+      mark.type = 'radio';
+      mark.name = `pd-mv-${side}`;
+      const sel = el('select');
+      fillMoves(sel, '');
+      line.append(mark, el('span', 'k', `わざ${i + 1}`), sel);
+      card.appendChild(line);
+      moveRadios.push(mark);
+      moveSels.push(sel);
+      const onMark = (): void => { chosen(side).active = i; };
+      mark.addEventListener('input', onMark);
+      mark.addEventListener('change', onMark);
+      const onSel = (): void => {
+        const slot = chosen(side);
+        slot.moves[i] = sel.value;
+        // わざを 入れかえたら、いりょくは その わざの ものに もどす。
+        slot.powers[i] = null;
+        // 空に したら、まるは 決まって いる ものへ 移す。
+        if (sel.value !== '') slot.active = i;
+      };
+      sel.addEventListener('input', onSel);
+      sel.addEventListener('change', onSel);
+    }
+
     // じぶんで かく わざ。なまえが 一覧に ある ものと 合えば、いりょくと タイプを
     // そのまま 入れる。打ちまちがいや、一覧に 無い わざは、手で 直せば いい。
     const powerInput = numInput('num', '80', 1, 250);
     const powerRow = row('いりょく', powerInput);
-    powerInput.addEventListener('input', () => {
-      chosen(side).power = readNum(powerInput.value, 80, 1, 250);
-    });
+    const onPower = (): void => {
+      const slot = chosen(side);
+      slot.powers[activeIndex(slot)] = readNum(powerInput.value, 80, 1, 250);
+    };
+    powerInput.addEventListener('input', onPower);
 
     const moveWrap = el('div', 'pd-own');
     const moveName = el('input');
@@ -1588,14 +1659,17 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     moveWrap.append(row('わざの なまえ', moveName), row('タイプ', moveType));
     const onMoveEdit = (e: Event): void => {
       const slot = chosen(side);
-      slot.ownMoveName = moveName.value;
+      const i = activeIndex(slot);
+      const own = slot.ownMoves[i];
+      if (!own) return;
+      own.name = moveName.value;
       const known = MOVE_BY_NAME.get(moveName.value.trim());
       if (known && e.target === moveName) {
         moveType.value = known.type;
         powerInput.value = String(known.power);
-        slot.power = known.power;
+        slot.powers[i] = known.power;
       }
-      slot.ownMoveType = moveType.value as TypeKey;
+      own.type = moveType.value as TypeKey;
     };
     moveWrap.addEventListener('input', onMoveEdit);
     moveWrap.addEventListener('change', onMoveEdit);
@@ -1652,7 +1726,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     ctl[side] = { source, iv, hpEv, ev, nature, rank };
     detail[side] = {
       ownWrap, ownName, ownT1, ownT2, ownBase, types, seed,
-      moveWrap, moveName, moveType, powerRow, power: powerInput,
+      moveRadios, moveSels, moveWrap, moveName, moveType, powerRow, power: powerInput,
       typedWrap, typedInputs, note, roleTag, ivRow, hpEvRow, evRow, natureRow,
       item, itemNote,
     };
@@ -1772,10 +1846,17 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       slot.own.base.forEach((v, i) => { const n = d.ownBase[i]; if (n) put(n, String(v)); });
     }
 
-    d.moveWrap.hidden = slot.moveSel.value !== OWN;
+    const active = activeIndex(slot);
+    slot.moves.forEach((value, i) => { const n = d.moveSels[i]; if (n) put(n, value); });
+    d.moveRadios.forEach((mark, i) => { mark.checked = i === active; });
+
+    d.moveWrap.hidden = slot.moves[active] !== OWN;
     if (!d.moveWrap.hidden) {
-      put(d.moveName, slot.ownMoveName);
-      put(d.moveType, slot.ownMoveType);
+      const own = slot.ownMoves[active];
+      if (own) {
+        put(d.moveName, own.name);
+        put(d.moveType, own.type);
+      }
     }
     put(d.item, slot.item);
     d.itemNote.textContent = itemWord(itemOf(slot), mon);
@@ -1891,7 +1972,37 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     for (const a of slots[atkSide]) {
       const tr = el('tr');
       const th = el('th', 'rh');
-      th.append(document.createTextNode(monOf(a).name), el('small', undefined, moveOf(a).name));
+      th.appendChild(el('div', 'nm', monOf(a).name));
+
+      // 名前の 下に、いま つかう わざ。押すと のこりの わざが 出て、えらべる。
+      // 4つを ずっと ならべると 表が 読めなく なるので、ふだんは 1つだけ 出す。
+      const pick = el('button', 'mv', `${moveOf(a).name} ▾`);
+      pick.type = 'button';
+      pick.addEventListener('click', () => {
+        picker = picker === a ? null : a;
+        render();
+      });
+      th.appendChild(pick);
+
+      if (picker === a) {
+        const list = el('div', 'mvlist');
+        const active = activeIndex(a);
+        for (const i of filledMoves(a)) {
+          if (i === active) continue;
+          const one = el('button', undefined, moveAt(a, i).name);
+          one.type = 'button';
+          one.addEventListener('click', () => {
+            a.active = i;
+            picker = null;
+            render();
+          });
+          list.appendChild(one);
+        }
+        if (!list.childElementCount) {
+          list.appendChild(el('span', 'none', 'ほかの わざは まだ きめて いない'));
+        }
+        th.appendChild(list);
+      }
       tr.appendChild(th);
       for (const d of slots[defSide]) {
         const pair = pairOf(a, d, atkSide);
@@ -1946,11 +2057,10 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   }
 
   // どれが 変わっても やることは おなじ（計算を やり直す）ので、1つずつ つなぐより
-  // まとめて 1か所で 受ける。わざを えらび直した ときだけ、先に いりょくを もどす。
+  // まとめて 1か所で 受ける。
   const onChange = (e: Event): void => {
     for (const side of ['mine', 'theirs'] as const) {
       for (const slot of slots[side]) {
-        if (e.target === slot.moveSel) slot.power = null;
         // さわった 行を、そのまま「えらんで いる」行に する。
         // そうしないと、3ばんめの 行で「じぶんで かく」を えらんだのに、下に 出て
         // いるのは 1ばんめの 中身、という ずれ方を する。
