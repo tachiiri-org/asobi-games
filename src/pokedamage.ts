@@ -439,6 +439,12 @@ const CSS = `
 .pd-chip{color:#fff;font-size:.68rem;font-weight:700;padding:1px 9px;border-radius:999px;
   text-shadow:1px 1px 1px rgba(0,0,0,.25)}
 .pd-sub{font-size:.72rem;color:#6b7280;margin:-2px 0 0}
+.pd-seed{display:flex;flex-wrap:wrap;gap:2px 9px;font-size:.7rem;color:#9ca3af;
+  margin:-3px 0 8px calc(5.6rem + 8px)}
+.pd-seed .k{color:#9ca3af}
+.pd-seed b{color:#78350f;font-weight:700;font-variant-numeric:tabular-nums}
+.pd-seed .on .k,.pd-seed .on b{color:#b45309}
+.pd-seed .on b{text-decoration:underline}
 .pd-own{background:#fff7ed;border:2px dashed #b45309;border-radius:12px;padding:8px;margin:0 0 8px}
 .pd-own .pd-row:last-child{margin-bottom:0}
 .pd-own .pd-row>label{flex:0 0 4.6rem}
@@ -464,7 +470,8 @@ const CSS = `
 .pd-table{width:100%;border-collapse:collapse;font-size:.74rem;margin-top:8px}
 .pd-table th,.pd-table td{border-bottom:1px solid #e5e7eb;padding:3px 4px;text-align:left;color:#374151}
 .pd-table td.num{text-align:right;font-variant-numeric:tabular-nums}
-.pd-note{font-size:.7rem;color:#6b7280;line-height:1.7;margin:0}
+.pd-note{font-size:.7rem;color:#6b7280;line-height:1.7;margin:0 0 6px}
+.pd-note:last-child{margin-bottom:0}
 .pd-swap{background:#64748b;color:#fff;border:0;border-bottom:4px solid #334155;border-radius:12px;
   padding:.45rem .9rem;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;width:100%;
   text-shadow:1px 1px 2px rgba(0,0,0,.3)}
@@ -553,6 +560,28 @@ const natureOptions: readonly Opt[] = [
 
 const MON_BY_NO = new Map(MONS.map((m) => [String(m.no), m]));
 
+const STAT_LABEL = ['HP', 'こうげき', 'ぼうぎょ', 'とくこう', 'とくぼう'] as const;
+
+/**
+ * えらんだ ポケモンの しゅぞくちを ならべる。
+ *
+ * しゅぞくちは その ポケモンに はじめから 決まって いる すうじで、図鑑にも ゲームの
+ * 画面にも 出て こない。ここに 出さないと、じぶんで かく ときに 何を 書けば いいか
+ * 分からないし、出た ダメージが どこから 来たのかも たどれない。
+ *
+ * used は いま つかって いる ところ。レベルを 変えて 出る じっすうは この下の 行に 出す。
+ */
+const seedRow = (mon: Mon, used: readonly number[]): HTMLElement => {
+  const box = el('div', 'pd-seed');
+  box.appendChild(el('span', 'k', 'しゅぞくち'));
+  mon.base.forEach((v, i) => {
+    const item = el('span', used.includes(i) ? 'on' : undefined);
+    item.append(el('span', 'k', `${STAT_LABEL[i]} `), el('b', undefined, String(v)));
+    box.appendChild(item);
+  });
+  return box;
+};
+
 const typeChips = (types: readonly TypeKey[]): HTMLElement => {
   const box = el('div', 'pd-chips');
   for (const t of types) {
@@ -583,6 +612,9 @@ type OwnMon = {
   readonly read: () => Mon;
   /** 入れかえの ときに、書いた 中身ごと 相手がわへ 移すのに 使う。 */
   readonly write: (mon: Mon) => void;
+  /** まだ 手が 入って いなければ false。下じきを 入れて よいかの 目じるし。 */
+  readonly touched: () => boolean;
+  readonly setTouched: (value: boolean) => void;
 };
 
 const ownMon = (name: string): OwnMon => {
@@ -628,6 +660,12 @@ const ownMon = (name: string): OwnMon => {
       base: [n[0] ?? 100, n[1] ?? 100, n[2] ?? 100, n[3] ?? 100, n[4] ?? 100],
     };
   };
+  // 人が 1字でも さわったら、下じきを 入れ直さない。書きかけを 消される方が 困る。
+  // write で すうじを 入れても ここは 動かない（催しが 出ないので）。
+  let dirty = false;
+  wrap.addEventListener('input', () => { dirty = true; });
+  wrap.addEventListener('change', () => { dirty = true; });
+
   const write = (mon: Mon): void => {
     nameInput.value = mon.name;
     t1.value = mon.types[0] ?? 'normal';
@@ -638,7 +676,11 @@ const ownMon = (name: string): OwnMon => {
     });
   };
 
-  return { wrap, read, write };
+  return {
+    wrap, read, write,
+    touched: () => dirty,
+    setTouched: (value: boolean) => { dirty = value; },
+  };
 };
 
 export const mountPokeDamage: GameMount = (host, _ctx) => {
@@ -658,6 +700,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const atkMon = select(monOptions, '6');
   const atkOwn = ownMon('じぶんの ポケモン');
   const atkTypes = el('div');
+  const atkSeed = el('div');
   const atkLevel = numInput('50', 1, 100);
   const atkEv = select(evOptions, '252');
   const atkNature = select(natureOptions, '1.1');
@@ -677,6 +720,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     row('ポケモン', atkMon),
     atkOwn.wrap,
     atkTypes,
+    atkSeed,
     row('レベル', atkLevel),
     row('どりょく', atkEv),
     row('せいかく', atkNature),
@@ -696,6 +740,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const defMon = select(monOptions, '9');
   const defOwn = ownMon('あいての ポケモン');
   const defTypes = el('div');
+  const defSeed = el('div');
   const defLevel = numInput('50', 1, 100);
   const defHpEv = select(evOptions, '252');
   const defEv = select(evOptions, '252');
@@ -707,6 +752,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     row('ポケモン', defMon),
     defOwn.wrap,
     defTypes,
+    defSeed,
     row('レベル', defLevel),
     row('HPどりょく', defHpEv),
     row('ぼうぎょ', defEv),
@@ -764,6 +810,11 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     + ' らんすうは 0.85 から 1.00 までの 16とおり なので、おなじ わざでも 当たるたびに'
     + ' すこし ちがう。だから こたえは 1つの 数ではなく「いくつから いくつ」に なる。'
     + ' こたいちは 31。もちもの・とくせい・リフレクターは 入れて いない。'));
+  noteCard.appendChild(el('p', 'pd-note',
+    'しゅぞくちから その レベルの じっすうを 出す しきは、'
+    + '（しゅぞくち × 2 ＋ こたいち ＋ どりょく ÷ 4）× レベル ÷ 100 ＋ 5 × せいかく。'
+    + ' HP だけ ちがって、最後が ＋ レベル ＋ 10 で、せいかくも きかない。'
+    + ' だから レベルを 変えると じっすうは 動くが、しゅぞくちは 動かない。'));
 
   app.append(atkCard, defCard, optCard, swap, outCard, noteCard);
 
@@ -798,14 +849,28 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     power.value = move.value === OWN ? '80' : String(currentMove().power);
   };
 
+  /**
+   * 直前に えらんで いた ポケモン。「じぶんで かく」の 下じきに 使う。
+   *
+   * まっさらな 100 から 書き起こすより、近い ポケモンを 1つ2つ 直す方が 早い。
+   * ただし 一度でも 手が 入ったら 入れ直さない——書きかけを 消される方が 困る。
+   */
+  let atkLast: Mon = MON_BY_NO.get('6') ?? MONS[0]!;
+  let defLast: Mon = MON_BY_NO.get('9') ?? MONS[0]!;
+
   const render = (): void => {
     atkOwn.wrap.hidden = atkMon.value !== OWN;
     defOwn.wrap.hidden = defMon.value !== OWN;
     moveOwn.hidden = move.value !== OWN;
 
+    if (atkMon.value === OWN && !atkOwn.touched()) atkOwn.write(atkLast);
+    if (defMon.value === OWN && !defOwn.touched()) defOwn.write(defLast);
+
     const a = currentMon(atkMon, atkOwn);
     const d = currentMon(defMon, defOwn);
     const mv = currentMove();
+    if (atkMon.value !== OWN) atkLast = a;
+    if (defMon.value !== OWN) defLast = d;
 
     atkTypes.replaceChildren(typeChips(a.types));
     defTypes.replaceChildren(typeChips(d.types));
@@ -848,10 +913,15 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     const lo = rolls[0] ?? 0;
     const hi = rolls[rolls.length - 1] ?? 0;
 
-    atkNote.textContent = `${physical ? 'こうげき' : 'とくこう'} ${aStat}`
+    // しゅぞくちは レベルで 変わらない すうじ、じっすうは その レベルで 出る すうじ。
+    // 2つを 上下に ならべると、レベルを 動かした ときに どちらが 動くかが 見える。
+    atkSeed.replaceChildren(seedRow(a, [physical ? 1 : 3]));
+    defSeed.replaceChildren(seedRow(d, [0, physical ? 2 : 4]));
+
+    atkNote.textContent = `Lv${aLevel} の ${physical ? 'こうげき' : 'とくこう'} ${aStat}`
       + `${aUsed === aStat ? '' : ` → ${aUsed}（ランク）`}`
       + `${stab ? ' / タイプ一致 × 1.5' : ''}`;
-    defNote.textContent = `HP ${dHp} / ${physical ? 'ぼうぎょ' : 'とくぼう'} ${dStat}`
+    defNote.textContent = `Lv${dLevel} の HP ${dHp} / ${physical ? 'ぼうぎょ' : 'とくぼう'} ${dStat}`
       + `${dUsed === dStat ? '' : ` → ${dUsed}（ランク）`}`;
 
     eff.textContent = effectWord(typeMul);
@@ -923,8 +993,11 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     atkLevel.value = defLevel.value;
     defLevel.value = levelValue;
     const written = atkOwn.read();
+    const writtenTouched = atkOwn.touched();
     atkOwn.write(defOwn.read());
+    atkOwn.setTouched(defOwn.touched());
     defOwn.write(written);
+    defOwn.setTouched(writtenTouched);
     render();
   };
 
