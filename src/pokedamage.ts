@@ -891,10 +891,57 @@ const pad = (n: number): string => String(n).padStart(3, '0');
 
 const MON_BY_NO = new Map(MONS.map((m) => [String(m.no), m]));
 
-const monOptions: readonly Opt[] = [
-  { value: OWN, label: '✏️ じぶんで かく' },
-  ...MONS.map((m) => ({ value: String(m.no), label: `${pad(m.no)} ${m.name}` })),
+const monOptions: readonly Opt[] = MONS.map((m) => ({
+  value: String(m.no), label: `${pad(m.no)} ${m.name}`,
+}));
+
+/**
+ * ひらがなを カタカナに する。
+ *
+ * ポケモンの 名前は カタカナ なので、「みずごろう」と 打つと 1つも 当たらない。
+ * 打つ方に 合わせる ほうが 筋が いい——探して いる 子に「カタカナで 打ち直して」とは
+ * 言えない。
+ */
+const kata = (text: string): string =>
+  text.replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+/** 地方の くぎり。全国図鑑の 番号で 決まって いる。 */
+const REGIONS: readonly { readonly name: string; readonly last: number }[] = [
+  { name: 'カントー（赤・緑・ファイアレッド）', last: 151 },
+  { name: 'ジョウト（金・銀）', last: 251 },
+  { name: 'ホウエン（ルビー・サファイア・エメラルド）', last: 386 },
 ];
+
+/**
+ * ポケモンの 一覧を 地方ごとに まとめる。
+ *
+ * 386匹を 1列に ならべると、ホウエンの ポケモンは ずっと 下に いて、そこまで ある
+ * ことに 気づけない。くぎりを 出せば、下に まだ ある ことが 見えるし、しぼりこんだ
+ * ときも どの 地方の 子が 残ったかが 分かる。
+ */
+const fillMons = (node: HTMLSelectElement, options: readonly Opt[], value: string): void => {
+  const own = el('option');
+  own.value = OWN;
+  own.textContent = '✏️ じぶんで かく';
+  const parts: HTMLElement[] = [own];
+  let from = 1;
+  for (const region of REGIONS) {
+    const group = el('optgroup');
+    group.label = region.name;
+    for (const o of options) {
+      const no = Number(o.value);
+      if (no < from || no > region.last) continue;
+      const opt = el('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      group.appendChild(opt);
+    }
+    if (group.childElementCount) parts.push(group);
+    from = region.last + 1;
+  }
+  node.replaceChildren(...parts);
+  node.value = value;
+};
 const typeOptions: readonly Opt[] = TYPE_ORDER.map((t) => ({ value: t, label: TYPE_NAME[t] }));
 const typeOptionsWithNone: readonly Opt[] = [{ value: '', label: 'なし' }, ...typeOptions];
 const rankOptions: readonly Opt[] = [6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6].map((r) => ({
@@ -1213,7 +1260,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     const radio = el('input');
     radio.type = 'radio';
     radio.name = `pd-${side}`;
-    const monSel = select(monOptions, monValue);
+    const monSel = el('select');
+    fillMons(monSel, monOptions, monValue);
     const levelInput = numInput('lv', String(level), 1, 100);
     const moveSel = el('select', 'mv');
     fillMoves(moveSel, moveValue);
@@ -1281,13 +1329,15 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     // しぼりこみは この がわの ぜんぶの えらびかたに かかる。いま えらんで いる ものは、
     // しぼった 先に 残らなくても 消さない。字を 打った とたんに 選びなおしに なるため。
     find.addEventListener('input', () => {
-      const q = find.value.trim();
+      const q = kata(find.value.trim());
       for (const slot of slots[side]) {
         const kept = slot.monSel.value;
         const matched = q === ''
           ? monOptions
-          : monOptions.filter((o) => o.value === OWN || o.value === kept || o.label.includes(q));
-        fill(slot.monSel, matched.length > 1 ? matched : monOptions, kept);
+          : monOptions.filter((o) => o.value === kept || kata(o.label).includes(q));
+        // 当たらなかった ときは、いま えらんで いる ものだけが 残る。一覧を そのまま
+        // 出し続けるより、当たらなかったと 分かる 方が いい。
+        fillMons(slot.monSel, matched, kept);
       }
     });
 
