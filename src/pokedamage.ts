@@ -27,8 +27,10 @@
 //  - 第3世代の 計算順。もとの数 → てんき → やけど → ＋2 → きゅうしょ → らんすう →
 //    タイプ一致 → タイプ相性。＋2 が てんきの あとに 来るのと、きゅうしょが ＋2 の
 //    あとに 来るのが、いまの作品との ちがい。
-//  - のう（もちもの・とくせい・リフレクター・きゅうしょが ランクを 無視する ところ）は
-//    持たない。持ちはじめると「どれを 持っていて どれを 持っていないか」が 分からなくなる。
+//  - もちものは、ダメージに きく ものだけ 持つ（タイプを つよくする 17個と、
+//    のうりょくに かかる 7個）。えらべるのに 数が 動かない ものを ならべると、
+//    きいて いないのか 書きまちがえたのかが 分からなくなる。
+//  - とくせい・リフレクター・きゅうしょが ランクを 無視する ところは 持たない。
 
 import type { GameMount } from './types';
 
@@ -677,6 +679,63 @@ const MOVES: readonly Move[] = [
 /** なまえ引き。じぶんで かく とき、なまえを 書いたら いりょくと タイプを 入れるのに 使う。 */
 const MOVE_BY_NAME = new Map(MOVES.map((m) => [m.name, m]));
 
+// ── もちもの ──────────────────────────────────────────────────────────
+
+type StatSlot = 'atk' | 'def' | 'spa' | 'spd';
+
+type Item = {
+  readonly name: string;
+  /** わざの タイプが これと 同じ なら、ダメージが 1.1倍に なる。 */
+  readonly boostType?: TypeKey;
+  /** のうりょくに かかる もの。どれに かかるかと、何倍か。 */
+  readonly stat?: readonly StatSlot[];
+  readonly mul?: number;
+  /** その ポケモンの ときだけ きく（図鑑番号）。書いて なければ だれでも。 */
+  readonly only?: readonly number[];
+};
+
+/**
+ * 第3世代で ダメージに きく もちもの。
+ *
+ * タイプを つよくする 17個は 1.1倍。第4世代から 1.2倍に なるので、ここが ちがう。
+ * のうりょくに かかる ものは、その 子の ときだけ きく ものが 多い——ふといホネは
+ * カラカラと ガラガラ、でんきだまは ピカチュウ、という ぐあい。
+ *
+ * ダメージに きかない もの（きのみ・せんせいのツメ・ひかりのこな など）は 入れて
+ * いない。えらべるのに 数が 動かないと、きいて いないのか 書きまちがえたのかが
+ * 分からなくなる。
+ */
+const ITEMS: readonly Item[] = [
+  { name: 'シルクのスカーフ', boostType: 'normal' },
+  { name: 'もくたん', boostType: 'fire' },
+  { name: 'しんぴのしずく', boostType: 'water' },
+  { name: 'じしゃく', boostType: 'electric' },
+  { name: 'きせきのタネ', boostType: 'grass' },
+  { name: 'とけないこおり', boostType: 'ice' },
+  { name: 'くろおび', boostType: 'fight' },
+  { name: 'どくバリ', boostType: 'poison' },
+  { name: 'やわらかいすな', boostType: 'ground' },
+  { name: 'するどいくちばし', boostType: 'flying' },
+  { name: 'まがったスプーン', boostType: 'psychic' },
+  { name: 'ぎんのこな', boostType: 'bug' },
+  { name: 'かたいいし', boostType: 'rock' },
+  { name: 'のろいのおふだ', boostType: 'ghost' },
+  { name: 'りゅうのキバ', boostType: 'dragon' },
+  { name: 'くろいメガネ', boostType: 'dark' },
+  { name: 'メタルコート', boostType: 'steel' },
+  { name: 'こだわりハチマキ', stat: ['atk'], mul: 1.5 },
+  { name: 'ふといホネ', stat: ['atk'], mul: 2, only: [104, 105] },
+  { name: 'でんきだま', stat: ['spa'], mul: 2, only: [25] },
+  { name: 'しんかいのキバ', stat: ['spa'], mul: 2, only: [366] },
+  { name: 'しんかいのウロコ', stat: ['spd'], mul: 2, only: [366] },
+  { name: 'メタルパウダー', stat: ['def'], mul: 2, only: [132] },
+  { name: 'こころのしずく', stat: ['spa', 'spd'], mul: 1.5, only: [380, 381] },
+];
+
+/** その もちものが、その ポケモンに きくか。 */
+const itemWorks = (item: Item | null, mon: Mon): boolean =>
+  item !== null && (item.only === undefined || item.only.includes(mon.no));
+
 // ── 実数（ステータス）────────────────────────────────────────────────
 
 const statHp = (base: number, level: number, iv: number, ev: number): number =>
@@ -703,6 +762,8 @@ type Input = {
   /** タイプ相性。1つずつ かけて、そのつど きりすてる。 */
   readonly typeSteps: readonly number[];
   readonly crit: boolean;
+  /** タイプを つよくする もちものの ぶん。1.1 か 1。 */
+  readonly item: number;
   /** てんきの ぶん。1.5 / 1 / 0.5。 */
   readonly weather: number;
   /** やけど。物理の ときだけ 0.5。 */
@@ -712,9 +773,9 @@ type Input = {
 /**
  * 85〜100 の 16通りを 小さい順に かえす。第3世代の 順。
  *
- * もとの数 → てんき → やけど → ＋2 → きゅうしょ(×2) → らんすう → タイプ一致 →
- * タイプ相性。いまの作品は ＋2 を 先に 足して きゅうしょを ×1.5 にするので、
- * おなじ 場面でも 数が ずれる。
+ * もとの数 → てんき → やけど → ＋2 → きゅうしょ(×2) → もちもの → らんすう →
+ * タイプ一致 → タイプ相性。いまの作品は ＋2 を 先に 足して きゅうしょを ×1.5 に
+ * するので、おなじ 場面でも 数が ずれる。
  */
 const damages = (inp: Input): number[] => {
   if (inp.typeSteps.some((s) => s === 0)) return new Array<number>(16).fill(0);
@@ -727,6 +788,7 @@ const damages = (inp: Input): number[] => {
   if (inp.burn) fixed = Math.floor(fixed * 0.5);
   fixed = Math.max(1, fixed) + 2;
   if (inp.crit) fixed *= 2;
+  fixed = Math.floor(fixed * inp.item);
 
   const out: number[] = [];
   for (let r = 85; r <= 100; r += 1) {
@@ -989,6 +1051,30 @@ const natureOptions: readonly Opt[] = [
   { value: '1', label: 'ふつう（× 1.0）' },
   { value: '0.9', label: 'さがる（× 0.9）' },
 ];
+/** もちものの えらびかた。きき方で 2つに わけて ならべる。 */
+const fillItems = (node: HTMLSelectElement, value: string): void => {
+  const none = el('option');
+  none.value = '';
+  none.textContent = 'なし';
+  const byType = el('optgroup');
+  byType.label = 'タイプを つよくする（× 1.1）';
+  const byStat = el('optgroup');
+  byStat.label = 'のうりょくに かかる';
+  ITEMS.forEach((it, i) => {
+    const opt = el('option');
+    opt.value = String(i);
+    if (it.boostType) {
+      opt.textContent = `${it.name}（${TYPE_NAME[it.boostType]}）`;
+      byType.appendChild(opt);
+    } else {
+      opt.textContent = `${it.name}（× ${it.mul ?? 1}）`;
+      byStat.appendChild(opt);
+    }
+  });
+  node.replaceChildren(none, byType, byStat);
+  node.value = value;
+};
+
 const sourceOptions: readonly Opt[] = [
   { value: 'calc', label: 'しゅぞくちから 出す（だいたい）' },
   { value: 'typed', label: 'ゲームの がめんを 見て 書く（ぴったり）' },
@@ -1086,6 +1172,8 @@ type Slot = {
   ownMoveType: TypeKey;
   /** 手で 書きかえた いりょく。null なら わざの ままの いりょく。 */
   power: number | null;
+  /** もちもの。ITEMS の 添字。持って いなければ 空。 */
+  item: string;
   /** 直前に えらんで いた 図鑑の ポケモン。「じぶんで かく」の 下じきに 使う。 */
   lastReal: Mon;
 };
@@ -1106,6 +1194,31 @@ const monOf = (slot: Slot): Mon =>
   slot.monSel.value === OWN ? slot.own : MON_BY_NO.get(slot.monSel.value) ?? MONS[0]!;
 
 const levelOf = (slot: Slot): number => readNum(slot.levelInput.value, 50, 1, 100);
+
+const itemOf = (slot: Slot): Item | null =>
+  slot.item === '' ? null : ITEMS[Number(slot.item)] ?? null;
+
+const STAT_NAME: Record<StatSlot, string> = {
+  atk: 'こうげき', def: 'ぼうぎょ', spa: 'とくこう', spd: 'とくぼう',
+};
+
+/**
+ * その もちものが いま 何を して いるかを 一言で。
+ *
+ * きく 相手が 決まって いる ものを よその子に 持たせても、数は 1つも 動かない。
+ * だまって いると「持たせたのに 変わらない」で 止まるので、きいて いない ことを
+ * ここで 言う。
+ */
+const itemWord = (item: Item | null, mon: Mon): string => {
+  if (!item) return '';
+  if (!itemWorks(item, mon)) {
+    const who = (item.only ?? []).map((n) => MON_BY_NO.get(String(n))?.name ?? '?').join('・');
+    return `${item.name} は ${who} の ときだけ きく。いまは きいて いない。`;
+  }
+  if (item.boostType) return `${TYPE_NAME[item.boostType]} の わざが 1.1倍に なる。`;
+  const where = (item.stat ?? []).map((k) => STAT_NAME[k]).join('と');
+  return `${where} が ${item.mul ?? 1}倍に なる。`;
+};
 
 const moveOf = (slot: Slot): Move => {
   if (slot.moveSel.value === OWN) {
@@ -1165,6 +1278,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     readonly moveType: HTMLSelectElement;
     readonly powerRow: HTMLElement;
     readonly power: HTMLInputElement;
+    readonly item: HTMLSelectElement;
+    readonly itemNote: HTMLElement;
     readonly typedWrap: HTMLElement;
     readonly typedInputs: readonly HTMLInputElement[];
     readonly note: HTMLElement;
@@ -1194,22 +1309,37 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
 
   // ── 1匹ぶんの すうじ ──────────────────────────────────────────
 
+  /**
+   * もちものが のうりょくに かける ぶん。
+   *
+   * ゲームの ステータスの がめんには もちもののぶんは 出ない（持たせても 数は 動かない）
+   * ので、「ゲームの すうじを 書く」に して いても、この ぶんは ここで かける。
+   */
+  const itemStatMul = (slot: Slot, want: StatSlot): number => {
+    const it = itemOf(slot);
+    return it && it.stat?.includes(want) && itemWorks(it, monOf(slot)) ? it.mul ?? 1 : 1;
+  };
+
   const offenceOf = (slot: Slot, side: SideKey, physical: boolean): number => {
-    if (isTyped(side)) return slot.typed[physical ? 1 : 3];
-    const mon = monOf(slot);
-    return statOther(
-      mon.base[physical ? 1 : 3], levelOf(slot),
-      Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
-    );
+    const want: StatSlot = physical ? 'atk' : 'spa';
+    const raw = isTyped(side)
+      ? slot.typed[physical ? 1 : 3]
+      : statOther(
+        monOf(slot).base[physical ? 1 : 3], levelOf(slot),
+        Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
+      );
+    return Math.floor(raw * itemStatMul(slot, want));
   };
 
   const defenceOf = (slot: Slot, side: SideKey, physical: boolean): number => {
-    if (isTyped(side)) return slot.typed[physical ? 2 : 4];
-    const mon = monOf(slot);
-    return statOther(
-      mon.base[physical ? 2 : 4], levelOf(slot),
-      Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
-    );
+    const want: StatSlot = physical ? 'def' : 'spd';
+    const raw = isTyped(side)
+      ? slot.typed[physical ? 2 : 4]
+      : statOther(
+        monOf(slot).base[physical ? 2 : 4], levelOf(slot),
+        Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
+      );
+    return Math.floor(raw * itemStatMul(slot, want));
   };
 
   const hpOf = (slot: Slot, side: SideKey): number => {
@@ -1238,6 +1368,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     readonly weather: number;
     readonly burn: boolean;
     readonly crit: boolean;
+    readonly item: number;
   };
 
   const weather = select([
@@ -1273,15 +1404,18 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
         ? (mv.type === 'water' ? 1.5 : mv.type === 'fire' ? 0.5 : 1)
         : 1;
     const burned = physical && burn.checked;
+    const held = itemOf(atkSlot);
+    const itemMul = held?.boostType === mv.type && itemWorks(held, atkMon) ? 1.1 : 1;
 
     const rolls = damages({
       level: levelOf(atkSlot), power: mv.power, atk: atkUsed, def: defUsed,
-      stab, typeSteps: steps, crit: crit.checked, weather: weatherMul, burn: burned,
+      stab, typeSteps: steps, crit: crit.checked, item: itemMul,
+      weather: weatherMul, burn: burned,
     });
     return {
       mv, physical, atkMon, defMon, atkStat, defStat, atkUsed, defUsed, hp, stab, typeMul,
       lo: rolls[0] ?? 0, hi: rolls[rolls.length - 1] ?? 0,
-      weather: weatherMul, burn: burned, crit: crit.checked,
+      weather: weatherMul, burn: burned, crit: crit.checked, item: itemMul,
     };
   };
 
@@ -1311,6 +1445,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       ownMoveName: 'じぶんの わざ',
       ownMoveType: 'normal',
       power: null,
+      item: '',
       lastReal: base,
     };
     del.addEventListener('click', () => {
@@ -1424,6 +1559,19 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     const seed = el('div');
     card.append(types, seed);
 
+    // もちもの。1匹ずつ ちがう ものを 持てるので、ここに 置く（ぜんいんに かかる
+    // せってい とは 別）。きく 相手が 決まって いる ものは、下の 行で 知らせる。
+    const item = el('select');
+    fillItems(item, '');
+    const itemNote = el('p', 'pd-sub');
+    card.append(row('もちもの', item), itemNote);
+    // input と change の 両方で 受ける。えらびかたは input が 先に とぶので、change
+    // だけに して おくと、先に 走った 書き直しが 元の 値に もどして しまう——
+    // 持たせた はずの ものが、その場で 消える。
+    const onItem = (): void => { chosen(side).item = item.value; };
+    item.addEventListener('input', onItem);
+    item.addEventListener('change', onItem);
+
     // じぶんで かく わざ。なまえが 一覧に ある ものと 合えば、いりょくと タイプを
     // そのまま 入れる。打ちまちがいや、一覧に 無い わざは、手で 直せば いい。
     const powerInput = numInput('num', '80', 1, 250);
@@ -1506,6 +1654,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       ownWrap, ownName, ownT1, ownT2, ownBase, types, seed,
       moveWrap, moveName, moveType, powerRow, power: powerInput,
       typedWrap, typedInputs, note, roleTag, ivRow, hpEvRow, evRow, natureRow,
+      item, itemNote,
     };
     return card;
   };
@@ -1582,7 +1731,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     + ' こたいちと どりょくは 1匹ずつ ちがって、ゲームの 中からは 見えない。'
     + ' だから しゅぞくちから 出した すうじは「だいたい」で、ぴったり 合わせたい ときは'
     + ' ステータスの がめんの すうじを そのまま 書く。'
-    + ' もちもの・とくせい・リフレクターは 入れて いない。'));
+    + ' もちものの ぶんは、ステータスの がめんには 出ない ので、書いた すうじの 上から'
+    + ' この どうぐが かける。とくせいと リフレクターは 入れて いない。'));
 
   app.append(parties, optCard, outCard, mxCard, noteCard);
 
@@ -1627,6 +1777,9 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       put(d.moveName, slot.ownMoveName);
       put(d.moveType, slot.ownMoveType);
     }
+    put(d.item, slot.item);
+    d.itemNote.textContent = itemWord(itemOf(slot), mon);
+
     const mv = moveOf(slot);
     put(d.power, String(mv.power));
     // いりょくを いじれるのは せめる がわ だけ。受ける がわの わざは この 計算に
@@ -1702,6 +1855,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       ['タイプ相性', `× ${pair.typeMul}`],
       ['てんき', `× ${pair.weather}`],
       ['きゅうしょ', pair.crit ? '× 2' : '× 1'],
+      ['もちもの', pair.item === 1 ? '× 1' : `× ${pair.item}`],
       ['やけど', pair.burn ? '× 0.5' : '× 1'],
     ];
     for (const [k, v] of lines) {
