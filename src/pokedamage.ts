@@ -1,53 +1,75 @@
-// ポケモン ダメージけいさん。
+// ポケモン ダメージけいさん（ファイアレッド／第3世代）。
 //
 // あそびばの中では めずらしく「どうぐ」で、遊んで点を出すものではない。だから
 // onFinish は 一度も 呼ばない（表の ranking は 'none'）。ランキングに ならばない
 // かわりに、ログインも 保存も 要らない。
 //
-// 中身は しくみを 見せることが 目的なので、式を 隠さない。出した数と いっしょに、
-// 使った こうげき・ぼうぎょ・HP の 実数も ならべて 出す。子どもが「なぜ この数に
-// なったか」を たどれないと、計算機は ただの 黒い箱に なる。
+// 合わせる先は ファイアレッド／リーフグリーン（第3世代）。いまの作品とは 計算の
+// しかたが ちがうので、そこを まぜると どちらでも 合わない数が 出る。ちがいは4つ。
+//  - フェアリータイプが まだ 無い。ピッピも プリンも ノーマル。
+//  - 物理か 特殊かは、わざ1つずつ ではなく タイプで 決まる。ゴーストは 物理なので
+//    シャドーボールは 物理、ドラゴンは 特殊なので げきりんは 特殊。
+//  - きゅうしょは ×2（いまは ×1.5）。
+//  - はがねが ゴーストと あくを 半減する。
+// 種族値も 当時のもの。ピカチュウの ぼうぎょは 30（いまは 40）など、第6世代以降で
+// 上がった ぶんは 入れて いない。
+//
+// 一覧に 無いものは 自分で 書ける。カントー図鑑の 151匹の 外（他の地方の ポケモンや、
+// 覚える わざの 組み合わせ）を 試すのに、一覧を 太らせずに 済ませるため。
 //
 // 決めごと。
 //  - 外から CSS も 絵も 取らない。ポケモンは 名前と すうじ だけで あらわす。
-//  - ランクを 上げ下げする 式（(2+r)/2 と 2/(2-r)）は 第5世代 以降の かたち。
-//  - かけ算の まるめは 各段で きりすて（Math.floor）に して ある。本物は 4096分の1の
-//    まるめを 使うので、特性や もちものが 重なる 場面では 1〜2 ずれることが ある。
-//    そこを 合わせると 式が 読めなくなるので、ここでは 読める方を とった。
-//  - のう（きあいのタスキ・とくせい・もちもの・ダブルの ちょうせい）は 持たない。
-//    持ちはじめると「どれを 持っていて どれを 持っていないか」が 分からなくなる。
+//  - 第3世代の 計算順。もとの数 → てんき → やけど → ＋2 → きゅうしょ → らんすう →
+//    タイプ一致 → タイプ相性。＋2 が てんきの あとに 来るのと、きゅうしょが ＋2 の
+//    あとに 来るのが、いまの作品との ちがい。
+//  - のう（もちもの・とくせい・リフレクター・きゅうしょが ランクを 無視する ところ）は
+//    持たない。持ちはじめると「どれを 持っていて どれを 持っていないか」が 分からなくなる。
 
 import type { GameMount } from './types';
 
 // ── タイプ ────────────────────────────────────────────────────────────
 
+/** 第3世代の 17タイプ。フェアリーは まだ 無い。 */
 type TypeKey =
   | 'normal' | 'fire' | 'water' | 'electric' | 'grass' | 'ice'
   | 'fight' | 'poison' | 'ground' | 'flying' | 'psychic' | 'bug'
-  | 'rock' | 'ghost' | 'dragon' | 'dark' | 'steel' | 'fairy';
+  | 'rock' | 'ghost' | 'dragon' | 'dark' | 'steel';
 
 const TYPE_NAME: Record<TypeKey, string> = {
   normal: 'ノーマル', fire: 'ほのお', water: 'みず', electric: 'でんき',
   grass: 'くさ', ice: 'こおり', fight: 'かくとう', poison: 'どく',
   ground: 'じめん', flying: 'ひこう', psychic: 'エスパー', bug: 'むし',
-  rock: 'いわ', ghost: 'ゴースト', dragon: 'ドラゴン', dark: 'あく',
-  steel: 'はがね', fairy: 'フェアリー',
+  rock: 'いわ', ghost: 'ゴースト', dragon: 'ドラゴン', dark: 'あく', steel: 'はがね',
 };
 
-/** タイプの いろ。わざと 相手の タイプに 付ける ふだの 色。 */
+const TYPE_ORDER: readonly TypeKey[] = [
+  'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fight', 'poison', 'ground',
+  'flying', 'psychic', 'bug', 'rock', 'ghost', 'dragon', 'dark', 'steel',
+];
+
 const TYPE_COLOR: Record<TypeKey, string> = {
   normal: '#9ca3af', fire: '#ef4444', water: '#3b82f6', electric: '#eab308',
   grass: '#22c55e', ice: '#38bdf8', fight: '#b91c1c', poison: '#a855f7',
   ground: '#b45309', flying: '#60a5fa', psychic: '#ec4899', bug: '#84cc16',
-  rock: '#a16207', ghost: '#7c3aed', dragon: '#4f46e5', dark: '#475569',
-  steel: '#64748b', fairy: '#f472b6',
+  rock: '#a16207', ghost: '#7c3aed', dragon: '#4f46e5', dark: '#475569', steel: '#64748b',
 };
 
 /**
- * わざの タイプが、受ける タイプに どれだけ 効くか。
+ * 第3世代では、物理か 特殊かが わざ1つずつ ではなく タイプで 決まる。
  *
- * 書いて ない ところは 1倍。2つ タイプを 持つ 相手には、2つ ぶんを かける
- * （みず が くさ・じめん の 相手に 0.5 × 2 = 1倍 に なるのは これ）。
+ * だから シャドーボール（ゴースト）は 物理で、ふぶき（こおり）は 特殊。
+ * 第4世代で わざごとに 変わったので、いまの作品の 感覚で 選ぶと 逆になる。
+ */
+const PHYSICAL_TYPES: ReadonlySet<TypeKey> = new Set<TypeKey>([
+  'normal', 'fight', 'flying', 'poison', 'ground', 'rock', 'bug', 'ghost', 'steel',
+]);
+
+const isPhysical = (type: TypeKey): boolean => PHYSICAL_TYPES.has(type);
+
+/**
+ * わざの タイプが、受ける タイプに どれだけ 効くか。第3世代の 表。
+ *
+ * 書いて ない ところは 1倍。はがねが ゴーストと あくを 半減するのは この世代まで。
  */
 const CHART: Record<TypeKey, Partial<Record<TypeKey, number>>> = {
   normal: { rock: 0.5, ghost: 0, steel: 0.5 },
@@ -61,134 +83,267 @@ const CHART: Record<TypeKey, Partial<Record<TypeKey, number>>> = {
   ice: { fire: 0.5, water: 0.5, grass: 2, ice: 0.5, ground: 2, flying: 2, dragon: 2, steel: 0.5 },
   fight: {
     normal: 2, ice: 2, poison: 0.5, flying: 0.5, psychic: 0.5, bug: 0.5,
-    rock: 2, ghost: 0, dark: 2, steel: 2, fairy: 0.5,
+    rock: 2, ghost: 0, dark: 2, steel: 2,
   },
-  poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5, steel: 0, fairy: 2 },
+  poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5, steel: 0 },
   ground: { fire: 2, electric: 2, grass: 0.5, poison: 2, flying: 0, bug: 0.5, rock: 2, steel: 2 },
   flying: { electric: 0.5, grass: 2, fight: 2, bug: 2, rock: 0.5, steel: 0.5 },
   psychic: { fight: 2, poison: 2, psychic: 0.5, dark: 0, steel: 0.5 },
-  bug: {
-    fire: 0.5, grass: 2, fight: 0.5, poison: 0.5, flying: 0.5, psychic: 2,
-    ghost: 0.5, dark: 2, steel: 0.5, fairy: 0.5,
-  },
+  bug: { fire: 0.5, grass: 2, fight: 0.5, poison: 0.5, flying: 0.5, psychic: 2, ghost: 0.5, dark: 2, steel: 0.5 },
   rock: { fire: 2, ice: 2, fight: 0.5, ground: 0.5, flying: 2, bug: 2, steel: 0.5 },
-  ghost: { normal: 0, psychic: 2, ghost: 2, dark: 0.5 },
-  dragon: { dragon: 2, steel: 0.5, fairy: 0 },
-  dark: { fight: 0.5, psychic: 2, ghost: 2, dark: 0.5, fairy: 0.5 },
-  steel: { fire: 0.5, water: 0.5, electric: 0.5, ice: 2, rock: 2, steel: 0.5, fairy: 2 },
-  fairy: { fire: 0.5, fight: 2, poison: 0.5, dragon: 2, dark: 2, steel: 0.5 },
+  ghost: { normal: 0, psychic: 2, ghost: 2, dark: 0.5, steel: 0.5 },
+  dragon: { dragon: 2, steel: 0.5 },
+  dark: { fight: 0.5, psychic: 2, ghost: 2, dark: 0.5, steel: 0.5 },
+  steel: { fire: 0.5, water: 0.5, electric: 0.5, ice: 2, rock: 2, steel: 0.5 },
 };
 
-/** わざ1つが 相手に 何倍 効くか。0 なら きかない。 */
+/** 1つずつ かけて、そのつど きりすてる（第3世代の やりかた）。 */
+const typeSteps = (move: TypeKey, defender: readonly TypeKey[]): readonly number[] =>
+  defender.map((t) => CHART[move][t] ?? 1);
+
 const effectiveness = (move: TypeKey, defender: readonly TypeKey[]): number =>
-  defender.reduce((acc, t) => acc * (CHART[move][t] ?? 1), 1);
+  typeSteps(move, defender).reduce((a, b) => a * b, 1);
 
-// ── ポケモン と わざ ──────────────────────────────────────────────────
+// ── ポケモン ──────────────────────────────────────────────────────────
 
-/** base は しゅぞくち。HP・こうげき・ぼうぎょ・とくこう・とくぼう・すばやさ の順。 */
+/** base は しゅぞくち。HP・こうげき・ぼうぎょ・とくこう・とくぼう の順（すばやさは 使わない）。 */
 type Mon = {
+  readonly no: number;
   readonly name: string;
   readonly types: readonly TypeKey[];
-  readonly base: readonly [number, number, number, number, number, number];
+  readonly base: readonly [number, number, number, number, number];
 };
 
+/**
+ * カントー図鑑の 151匹。種族値は 第3世代のもの。
+ *
+ * 第6世代以降で 上がった ぶんは 入れて いない。ピカチュウの ぼうぎょ30・とくぼう40、
+ * バタフリーの とくこう80、ピジョットの すばやさ、ニドキングの こうげき92、
+ * フーディンの とくぼう85、マルマインの すばやさ、ダグトリオと カモネギの こうげきなど。
+ * すばやさは この どうぐでは 使わないので 持たない。
+ */
 const MONS: readonly Mon[] = [
-  { name: 'フシギバナ', types: ['grass', 'poison'], base: [80, 82, 83, 100, 100, 80] },
-  { name: 'リザードン', types: ['fire', 'flying'], base: [78, 84, 78, 109, 85, 100] },
-  { name: 'カメックス', types: ['water'], base: [79, 83, 100, 85, 105, 78] },
-  { name: 'ピカチュウ', types: ['electric'], base: [35, 55, 40, 50, 50, 90] },
-  { name: 'ライチュウ', types: ['electric'], base: [60, 90, 55, 90, 80, 110] },
-  { name: 'イーブイ', types: ['normal'], base: [55, 55, 50, 45, 65, 55] },
-  { name: 'サンダース', types: ['electric'], base: [65, 65, 60, 110, 95, 130] },
-  { name: 'ニンフィア', types: ['fairy'], base: [95, 65, 65, 110, 130, 60] },
-  { name: 'カビゴン', types: ['normal'], base: [160, 110, 65, 65, 110, 30] },
-  { name: 'ゲンガー', types: ['ghost', 'poison'], base: [60, 65, 60, 130, 75, 110] },
-  { name: 'フーディン', types: ['psychic'], base: [55, 50, 45, 135, 95, 120] },
-  { name: 'ヤドラン', types: ['water', 'psychic'], base: [95, 75, 110, 100, 80, 30] },
-  { name: 'ギャラドス', types: ['water', 'flying'], base: [95, 125, 79, 60, 100, 81] },
-  { name: 'ラプラス', types: ['water', 'ice'], base: [130, 85, 80, 85, 95, 60] },
-  { name: 'ウインディ', types: ['fire'], base: [90, 110, 80, 100, 80, 95] },
-  { name: 'ニドキング', types: ['poison', 'ground'], base: [81, 92, 77, 85, 75, 85] },
-  { name: 'ピジョット', types: ['normal', 'flying'], base: [83, 80, 75, 70, 70, 101] },
-  { name: 'カイリュー', types: ['dragon', 'flying'], base: [91, 134, 95, 100, 100, 80] },
-  { name: 'ミュウツー', types: ['psychic'], base: [106, 110, 90, 154, 90, 130] },
-  { name: 'ミュウ', types: ['psychic'], base: [100, 100, 100, 100, 100, 100] },
-  { name: 'ハガネール', types: ['steel', 'ground'], base: [75, 85, 200, 55, 65, 30] },
-  { name: 'ハッサム', types: ['bug', 'steel'], base: [70, 130, 100, 55, 80, 65] },
-  { name: 'キングドラ', types: ['water', 'dragon'], base: [75, 95, 95, 95, 95, 85] },
-  { name: 'バンギラス', types: ['rock', 'dark'], base: [100, 134, 110, 95, 100, 61] },
-  { name: 'ジュカイン', types: ['grass'], base: [70, 85, 65, 105, 85, 120] },
-  { name: 'バシャーモ', types: ['fire', 'fight'], base: [80, 120, 70, 110, 70, 80] },
-  { name: 'ラグラージ', types: ['water', 'ground'], base: [100, 110, 90, 85, 90, 60] },
-  { name: 'サーナイト', types: ['psychic', 'fairy'], base: [68, 65, 65, 125, 115, 80] },
-  { name: 'サメハダー', types: ['water', 'dark'], base: [70, 120, 40, 95, 40, 95] },
-  { name: 'ボーマンダ', types: ['dragon', 'flying'], base: [95, 135, 80, 110, 80, 100] },
-  { name: 'メタグロス', types: ['steel', 'psychic'], base: [80, 135, 130, 95, 90, 70] },
-  { name: 'ジバコイル', types: ['electric', 'steel'], base: [70, 70, 115, 130, 90, 60] },
-  { name: 'ルカリオ', types: ['fight', 'steel'], base: [70, 110, 70, 115, 70, 90] },
-  { name: 'ヒードラン', types: ['fire', 'steel'], base: [91, 90, 106, 130, 106, 77] },
-  { name: 'ガブリアス', types: ['dragon', 'ground'], base: [108, 130, 95, 80, 85, 102] },
-  { name: 'ゲッコウガ', types: ['water', 'dark'], base: [72, 95, 67, 103, 71, 122] },
-  { name: 'ミミッキュ', types: ['ghost', 'fairy'], base: [55, 90, 80, 50, 105, 96] },
-  { name: 'エースバーン', types: ['fire'], base: [80, 116, 75, 65, 75, 119] },
-  { name: 'ドラパルト', types: ['dragon', 'ghost'], base: [88, 120, 75, 100, 75, 142] },
+  { no: 1, name: 'フシギダネ', types: ['grass', 'poison'], base: [45, 49, 49, 65, 65] },
+  { no: 2, name: 'フシギソウ', types: ['grass', 'poison'], base: [60, 62, 63, 80, 80] },
+  { no: 3, name: 'フシギバナ', types: ['grass', 'poison'], base: [80, 82, 83, 100, 100] },
+  { no: 4, name: 'ヒトカゲ', types: ['fire'], base: [39, 52, 43, 60, 50] },
+  { no: 5, name: 'リザード', types: ['fire'], base: [58, 64, 58, 80, 65] },
+  { no: 6, name: 'リザードン', types: ['fire', 'flying'], base: [78, 84, 78, 109, 85] },
+  { no: 7, name: 'ゼニガメ', types: ['water'], base: [44, 48, 65, 50, 64] },
+  { no: 8, name: 'カメール', types: ['water'], base: [59, 63, 80, 65, 80] },
+  { no: 9, name: 'カメックス', types: ['water'], base: [79, 83, 100, 85, 105] },
+  { no: 10, name: 'キャタピー', types: ['bug'], base: [45, 30, 35, 20, 20] },
+  { no: 11, name: 'トランセル', types: ['bug'], base: [50, 20, 55, 25, 25] },
+  { no: 12, name: 'バタフリー', types: ['bug', 'flying'], base: [60, 45, 50, 80, 80] },
+  { no: 13, name: 'ビードル', types: ['bug', 'poison'], base: [40, 35, 30, 20, 20] },
+  { no: 14, name: 'コクーン', types: ['bug', 'poison'], base: [45, 25, 50, 25, 25] },
+  { no: 15, name: 'スピアー', types: ['bug', 'poison'], base: [65, 80, 40, 45, 80] },
+  { no: 16, name: 'ポッポ', types: ['normal', 'flying'], base: [40, 45, 40, 35, 35] },
+  { no: 17, name: 'ピジョン', types: ['normal', 'flying'], base: [63, 60, 55, 50, 50] },
+  { no: 18, name: 'ピジョット', types: ['normal', 'flying'], base: [83, 80, 75, 70, 70] },
+  { no: 19, name: 'コラッタ', types: ['normal'], base: [30, 56, 35, 25, 35] },
+  { no: 20, name: 'ラッタ', types: ['normal'], base: [55, 81, 60, 50, 70] },
+  { no: 21, name: 'オニスズメ', types: ['normal', 'flying'], base: [40, 60, 30, 31, 31] },
+  { no: 22, name: 'オニドリル', types: ['normal', 'flying'], base: [65, 90, 65, 61, 61] },
+  { no: 23, name: 'アーボ', types: ['poison'], base: [35, 60, 44, 40, 54] },
+  { no: 24, name: 'アーボック', types: ['poison'], base: [60, 85, 69, 65, 79] },
+  { no: 25, name: 'ピカチュウ', types: ['electric'], base: [35, 55, 30, 50, 40] },
+  { no: 26, name: 'ライチュウ', types: ['electric'], base: [60, 90, 55, 90, 80] },
+  { no: 27, name: 'サンド', types: ['ground'], base: [50, 75, 85, 20, 30] },
+  { no: 28, name: 'サンドパン', types: ['ground'], base: [75, 100, 110, 45, 55] },
+  { no: 29, name: 'ニドラン♀', types: ['poison'], base: [55, 47, 52, 40, 40] },
+  { no: 30, name: 'ニドリーナ', types: ['poison'], base: [70, 62, 67, 55, 55] },
+  { no: 31, name: 'ニドクイン', types: ['poison', 'ground'], base: [90, 82, 87, 75, 85] },
+  { no: 32, name: 'ニドラン♂', types: ['poison'], base: [46, 57, 40, 40, 40] },
+  { no: 33, name: 'ニドリーノ', types: ['poison'], base: [61, 72, 57, 55, 55] },
+  { no: 34, name: 'ニドキング', types: ['poison', 'ground'], base: [81, 92, 77, 85, 75] },
+  { no: 35, name: 'ピッピ', types: ['normal'], base: [70, 45, 48, 60, 65] },
+  { no: 36, name: 'ピクシー', types: ['normal'], base: [95, 70, 73, 85, 90] },
+  { no: 37, name: 'ロコン', types: ['fire'], base: [38, 41, 40, 50, 65] },
+  { no: 38, name: 'キュウコン', types: ['fire'], base: [73, 76, 75, 81, 100] },
+  { no: 39, name: 'プリン', types: ['normal'], base: [115, 45, 20, 45, 25] },
+  { no: 40, name: 'プクリン', types: ['normal'], base: [140, 70, 45, 75, 50] },
+  { no: 41, name: 'ズバット', types: ['poison', 'flying'], base: [40, 45, 35, 30, 40] },
+  { no: 42, name: 'ゴルバット', types: ['poison', 'flying'], base: [75, 80, 70, 65, 75] },
+  { no: 43, name: 'ナゾノクサ', types: ['grass', 'poison'], base: [45, 50, 55, 75, 65] },
+  { no: 44, name: 'クサイハナ', types: ['grass', 'poison'], base: [60, 65, 70, 85, 75] },
+  { no: 45, name: 'ラフレシア', types: ['grass', 'poison'], base: [75, 80, 85, 100, 90] },
+  { no: 46, name: 'パラス', types: ['bug', 'grass'], base: [35, 70, 55, 45, 55] },
+  { no: 47, name: 'パラセクト', types: ['bug', 'grass'], base: [60, 95, 80, 60, 80] },
+  { no: 48, name: 'コンパン', types: ['bug', 'poison'], base: [60, 55, 50, 40, 55] },
+  { no: 49, name: 'モルフォン', types: ['bug', 'poison'], base: [70, 65, 60, 90, 75] },
+  { no: 50, name: 'ディグダ', types: ['ground'], base: [10, 55, 25, 35, 45] },
+  { no: 51, name: 'ダグトリオ', types: ['ground'], base: [35, 80, 50, 50, 70] },
+  { no: 52, name: 'ニャース', types: ['normal'], base: [40, 45, 35, 40, 40] },
+  { no: 53, name: 'ペルシアン', types: ['normal'], base: [65, 70, 60, 65, 65] },
+  { no: 54, name: 'コダック', types: ['water'], base: [50, 52, 48, 65, 50] },
+  { no: 55, name: 'ゴルダック', types: ['water'], base: [80, 82, 78, 95, 80] },
+  { no: 56, name: 'マンキー', types: ['fight'], base: [40, 80, 35, 35, 45] },
+  { no: 57, name: 'オコリザル', types: ['fight'], base: [65, 105, 60, 60, 70] },
+  { no: 58, name: 'ガーディ', types: ['fire'], base: [55, 70, 45, 70, 50] },
+  { no: 59, name: 'ウインディ', types: ['fire'], base: [90, 110, 80, 100, 80] },
+  { no: 60, name: 'ニョロモ', types: ['water'], base: [40, 50, 40, 40, 40] },
+  { no: 61, name: 'ニョロゾ', types: ['water'], base: [65, 65, 65, 50, 50] },
+  { no: 62, name: 'ニョロボン', types: ['water', 'fight'], base: [90, 85, 95, 70, 90] },
+  { no: 63, name: 'ケーシィ', types: ['psychic'], base: [25, 20, 15, 105, 55] },
+  { no: 64, name: 'ユンゲラー', types: ['psychic'], base: [40, 35, 30, 120, 70] },
+  { no: 65, name: 'フーディン', types: ['psychic'], base: [55, 50, 45, 135, 85] },
+  { no: 66, name: 'ワンリキー', types: ['fight'], base: [70, 80, 50, 35, 35] },
+  { no: 67, name: 'ゴーリキー', types: ['fight'], base: [80, 100, 70, 50, 60] },
+  { no: 68, name: 'カイリキー', types: ['fight'], base: [90, 130, 80, 65, 85] },
+  { no: 69, name: 'マダツボミ', types: ['grass', 'poison'], base: [50, 75, 35, 70, 30] },
+  { no: 70, name: 'ウツドン', types: ['grass', 'poison'], base: [65, 90, 50, 85, 45] },
+  { no: 71, name: 'ウツボット', types: ['grass', 'poison'], base: [80, 105, 65, 100, 60] },
+  { no: 72, name: 'メノクラゲ', types: ['water', 'poison'], base: [40, 40, 35, 50, 100] },
+  { no: 73, name: 'ドククラゲ', types: ['water', 'poison'], base: [80, 70, 65, 80, 120] },
+  { no: 74, name: 'イシツブテ', types: ['rock', 'ground'], base: [40, 80, 100, 30, 30] },
+  { no: 75, name: 'ゴローン', types: ['rock', 'ground'], base: [55, 95, 115, 45, 45] },
+  { no: 76, name: 'ゴローニャ', types: ['rock', 'ground'], base: [80, 110, 130, 55, 65] },
+  { no: 77, name: 'ポニータ', types: ['fire'], base: [50, 85, 55, 65, 65] },
+  { no: 78, name: 'ギャロップ', types: ['fire'], base: [65, 100, 70, 80, 80] },
+  { no: 79, name: 'ヤドン', types: ['water', 'psychic'], base: [90, 65, 65, 40, 40] },
+  { no: 80, name: 'ヤドラン', types: ['water', 'psychic'], base: [95, 75, 110, 100, 80] },
+  { no: 81, name: 'コイル', types: ['electric', 'steel'], base: [25, 35, 70, 95, 55] },
+  { no: 82, name: 'レアコイル', types: ['electric', 'steel'], base: [50, 60, 95, 120, 70] },
+  { no: 83, name: 'カモネギ', types: ['normal', 'flying'], base: [52, 65, 55, 58, 62] },
+  { no: 84, name: 'ドードー', types: ['normal', 'flying'], base: [35, 85, 45, 35, 35] },
+  { no: 85, name: 'ドードリオ', types: ['normal', 'flying'], base: [60, 110, 70, 60, 60] },
+  { no: 86, name: 'パウワウ', types: ['water'], base: [65, 45, 55, 45, 70] },
+  { no: 87, name: 'ジュゴン', types: ['water', 'ice'], base: [90, 70, 80, 70, 95] },
+  { no: 88, name: 'ベトベター', types: ['poison'], base: [80, 80, 50, 40, 50] },
+  { no: 89, name: 'ベトベトン', types: ['poison'], base: [105, 105, 75, 65, 100] },
+  { no: 90, name: 'シェルダー', types: ['water'], base: [30, 65, 100, 45, 25] },
+  { no: 91, name: 'パルシェン', types: ['water', 'ice'], base: [50, 95, 180, 85, 45] },
+  { no: 92, name: 'ゴース', types: ['ghost', 'poison'], base: [30, 35, 30, 100, 35] },
+  { no: 93, name: 'ゴースト', types: ['ghost', 'poison'], base: [45, 50, 45, 115, 55] },
+  { no: 94, name: 'ゲンガー', types: ['ghost', 'poison'], base: [60, 65, 60, 130, 75] },
+  { no: 95, name: 'イワーク', types: ['rock', 'ground'], base: [35, 45, 160, 30, 45] },
+  { no: 96, name: 'スリープ', types: ['psychic'], base: [60, 48, 45, 43, 90] },
+  { no: 97, name: 'スリーパー', types: ['psychic'], base: [85, 73, 70, 73, 115] },
+  { no: 98, name: 'クラブ', types: ['water'], base: [30, 105, 90, 25, 25] },
+  { no: 99, name: 'キングラー', types: ['water'], base: [55, 130, 115, 50, 50] },
+  { no: 100, name: 'ビリリダマ', types: ['electric'], base: [40, 30, 50, 55, 55] },
+  { no: 101, name: 'マルマイン', types: ['electric'], base: [60, 50, 70, 80, 80] },
+  { no: 102, name: 'タマタマ', types: ['grass', 'psychic'], base: [60, 40, 80, 60, 45] },
+  { no: 103, name: 'ナッシー', types: ['grass', 'psychic'], base: [95, 95, 85, 125, 65] },
+  { no: 104, name: 'カラカラ', types: ['ground'], base: [50, 50, 95, 40, 50] },
+  { no: 105, name: 'ガラガラ', types: ['ground'], base: [60, 80, 110, 50, 80] },
+  { no: 106, name: 'サワムラー', types: ['fight'], base: [50, 120, 53, 35, 110] },
+  { no: 107, name: 'エビワラー', types: ['fight'], base: [50, 105, 79, 35, 110] },
+  { no: 108, name: 'ベロリンガ', types: ['normal'], base: [90, 55, 75, 60, 75] },
+  { no: 109, name: 'ドガース', types: ['poison'], base: [40, 65, 95, 60, 45] },
+  { no: 110, name: 'マタドガス', types: ['poison'], base: [65, 90, 120, 85, 70] },
+  { no: 111, name: 'サイホーン', types: ['ground', 'rock'], base: [80, 85, 95, 30, 30] },
+  { no: 112, name: 'サイドン', types: ['ground', 'rock'], base: [105, 130, 120, 45, 45] },
+  { no: 113, name: 'ラッキー', types: ['normal'], base: [250, 5, 5, 35, 105] },
+  { no: 114, name: 'モンジャラ', types: ['grass'], base: [65, 55, 115, 100, 40] },
+  { no: 115, name: 'ガルーラ', types: ['normal'], base: [105, 95, 80, 40, 80] },
+  { no: 116, name: 'タッツー', types: ['water'], base: [30, 40, 70, 70, 25] },
+  { no: 117, name: 'シードラ', types: ['water'], base: [55, 65, 95, 95, 45] },
+  { no: 118, name: 'トサキント', types: ['water'], base: [45, 67, 60, 35, 50] },
+  { no: 119, name: 'アズマオウ', types: ['water'], base: [80, 92, 65, 65, 80] },
+  { no: 120, name: 'ヒトデマン', types: ['water'], base: [30, 45, 55, 70, 55] },
+  { no: 121, name: 'スターミー', types: ['water', 'psychic'], base: [60, 75, 85, 100, 85] },
+  { no: 122, name: 'バリヤード', types: ['psychic'], base: [40, 45, 65, 100, 120] },
+  { no: 123, name: 'ストライク', types: ['bug', 'flying'], base: [70, 110, 80, 55, 80] },
+  { no: 124, name: 'ルージュラ', types: ['ice', 'psychic'], base: [65, 50, 35, 115, 95] },
+  { no: 125, name: 'エレブー', types: ['electric'], base: [65, 83, 57, 95, 85] },
+  { no: 126, name: 'ブーバー', types: ['fire'], base: [65, 95, 57, 100, 85] },
+  { no: 127, name: 'カイロス', types: ['bug'], base: [65, 125, 100, 55, 70] },
+  { no: 128, name: 'ケンタロス', types: ['normal'], base: [75, 100, 95, 40, 70] },
+  { no: 129, name: 'コイキング', types: ['water'], base: [20, 10, 55, 15, 20] },
+  { no: 130, name: 'ギャラドス', types: ['water', 'flying'], base: [95, 125, 79, 60, 100] },
+  { no: 131, name: 'ラプラス', types: ['water', 'ice'], base: [130, 85, 80, 85, 95] },
+  { no: 132, name: 'メタモン', types: ['normal'], base: [48, 48, 48, 48, 48] },
+  { no: 133, name: 'イーブイ', types: ['normal'], base: [55, 55, 50, 45, 65] },
+  { no: 134, name: 'シャワーズ', types: ['water'], base: [130, 65, 60, 110, 95] },
+  { no: 135, name: 'サンダース', types: ['electric'], base: [65, 65, 60, 110, 95] },
+  { no: 136, name: 'ブースター', types: ['fire'], base: [65, 130, 60, 95, 110] },
+  { no: 137, name: 'ポリゴン', types: ['normal'], base: [65, 60, 70, 85, 75] },
+  { no: 138, name: 'オムナイト', types: ['rock', 'water'], base: [35, 40, 100, 90, 55] },
+  { no: 139, name: 'オムスター', types: ['rock', 'water'], base: [70, 60, 125, 115, 70] },
+  { no: 140, name: 'カブト', types: ['rock', 'water'], base: [30, 80, 90, 55, 45] },
+  { no: 141, name: 'カブトプス', types: ['rock', 'water'], base: [60, 115, 105, 65, 70] },
+  { no: 142, name: 'プテラ', types: ['rock', 'flying'], base: [80, 105, 65, 60, 75] },
+  { no: 143, name: 'カビゴン', types: ['normal'], base: [160, 110, 65, 65, 110] },
+  { no: 144, name: 'フリーザー', types: ['ice', 'flying'], base: [90, 85, 100, 95, 125] },
+  { no: 145, name: 'サンダー', types: ['electric', 'flying'], base: [90, 90, 85, 125, 90] },
+  { no: 146, name: 'ファイヤー', types: ['fire', 'flying'], base: [90, 100, 90, 125, 85] },
+  { no: 147, name: 'ミニリュウ', types: ['dragon'], base: [41, 64, 45, 50, 50] },
+  { no: 148, name: 'ハクリュー', types: ['dragon'], base: [61, 84, 65, 70, 70] },
+  { no: 149, name: 'カイリュー', types: ['dragon', 'flying'], base: [91, 134, 95, 100, 100] },
+  { no: 150, name: 'ミュウツー', types: ['psychic'], base: [106, 110, 90, 154, 90] },
+  { no: 151, name: 'ミュウ', types: ['psychic'], base: [100, 100, 100, 100, 100] },
 ];
 
-/** 物理は こうげき と ぼうぎょ、特殊は とくこう と とくぼう で 計算する。 */
-type Category = 'physical' | 'special';
+// ── わざ ──────────────────────────────────────────────────────────────
 
+/** 物理か 特殊かは タイプで 決まるので、わざ自身は 持たない。 */
 type Move = {
   readonly name: string;
   readonly type: TypeKey;
   readonly power: number;
-  readonly cat: Category;
 };
 
+/**
+ * ファイアレッドの ころの わざと いりょく。
+ *
+ * いまの作品で 数が 変わった ものが ある。かえんほうしゃ・なみのり・10まんボルト・
+ * れいとうビームは 95（いまは 90）、だいもんじ・ハイドロポンプ・かみなり・ふぶきは
+ * 120（いまは 110）、たいあたりは 35、とびひざげりは 100、げきりんは 90。
+ */
 const MOVES: readonly Move[] = [
-  { name: 'たいあたり', type: 'normal', power: 40, cat: 'physical' },
-  { name: 'でんこうせっか', type: 'normal', power: 40, cat: 'physical' },
-  { name: 'すてみタックル', type: 'normal', power: 120, cat: 'physical' },
-  { name: 'はかいこうせん', type: 'normal', power: 150, cat: 'special' },
-  { name: 'かえんほうしゃ', type: 'fire', power: 90, cat: 'special' },
-  { name: 'だいもんじ', type: 'fire', power: 110, cat: 'special' },
-  { name: 'フレアドライブ', type: 'fire', power: 120, cat: 'physical' },
-  { name: 'たきのぼり', type: 'water', power: 80, cat: 'physical' },
-  { name: 'なみのり', type: 'water', power: 90, cat: 'special' },
-  { name: 'ハイドロポンプ', type: 'water', power: 110, cat: 'special' },
-  { name: '10まんボルト', type: 'electric', power: 90, cat: 'special' },
-  { name: 'かみなり', type: 'electric', power: 110, cat: 'special' },
-  { name: 'ワイルドボルト', type: 'electric', power: 90, cat: 'physical' },
-  { name: 'はっぱカッター', type: 'grass', power: 55, cat: 'physical' },
-  { name: 'エナジーボール', type: 'grass', power: 90, cat: 'special' },
-  { name: 'リーフブレード', type: 'grass', power: 90, cat: 'physical' },
-  { name: 'れいとうビーム', type: 'ice', power: 90, cat: 'special' },
-  { name: 'ふぶき', type: 'ice', power: 110, cat: 'special' },
-  { name: 'つららおとし', type: 'ice', power: 85, cat: 'physical' },
-  { name: 'インファイト', type: 'fight', power: 120, cat: 'physical' },
-  { name: 'とびひざげり', type: 'fight', power: 130, cat: 'physical' },
-  { name: 'きあいだま', type: 'fight', power: 120, cat: 'special' },
-  { name: 'どくづき', type: 'poison', power: 80, cat: 'physical' },
-  { name: 'ヘドロばくだん', type: 'poison', power: 90, cat: 'special' },
-  { name: 'じしん', type: 'ground', power: 100, cat: 'physical' },
-  { name: 'だいちのちから', type: 'ground', power: 90, cat: 'special' },
-  { name: 'エアスラッシュ', type: 'flying', power: 75, cat: 'special' },
-  { name: 'ブレイブバード', type: 'flying', power: 120, cat: 'physical' },
-  { name: 'サイコキネシス', type: 'psychic', power: 90, cat: 'special' },
-  { name: 'シザークロス', type: 'bug', power: 80, cat: 'physical' },
-  { name: 'とんぼがえり', type: 'bug', power: 70, cat: 'physical' },
-  { name: 'いわなだれ', type: 'rock', power: 75, cat: 'physical' },
-  { name: 'ストーンエッジ', type: 'rock', power: 100, cat: 'physical' },
-  { name: 'かげうち', type: 'ghost', power: 40, cat: 'physical' },
-  { name: 'シャドーボール', type: 'ghost', power: 80, cat: 'special' },
-  { name: 'りゅうのはどう', type: 'dragon', power: 85, cat: 'special' },
-  { name: 'げきりん', type: 'dragon', power: 120, cat: 'physical' },
-  { name: 'りゅうせいぐん', type: 'dragon', power: 130, cat: 'special' },
-  { name: 'かみくだく', type: 'dark', power: 80, cat: 'physical' },
-  { name: 'あくのはどう', type: 'dark', power: 80, cat: 'special' },
-  { name: 'アイアンヘッド', type: 'steel', power: 80, cat: 'physical' },
-  { name: 'ラスターカノン', type: 'steel', power: 80, cat: 'special' },
-  { name: 'じゃれつく', type: 'fairy', power: 90, cat: 'physical' },
-  { name: 'ムーンフォース', type: 'fairy', power: 95, cat: 'special' },
+  { name: 'たいあたり', type: 'normal', power: 35 },
+  { name: 'でんこうせっか', type: 'normal', power: 40 },
+  { name: 'きりさく', type: 'normal', power: 70 },
+  { name: 'メガトンパンチ', type: 'normal', power: 80 },
+  { name: 'のしかかり', type: 'normal', power: 85 },
+  { name: 'すてみタックル', type: 'normal', power: 120 },
+  { name: 'はかいこうせん', type: 'normal', power: 150 },
+  { name: 'ひのこ', type: 'fire', power: 40 },
+  { name: 'かえんほうしゃ', type: 'fire', power: 95 },
+  { name: 'だいもんじ', type: 'fire', power: 120 },
+  { name: 'みずでっぽう', type: 'water', power: 40 },
+  { name: 'たきのぼり', type: 'water', power: 80 },
+  { name: 'なみのり', type: 'water', power: 95 },
+  { name: 'ハイドロポンプ', type: 'water', power: 120 },
+  { name: 'でんきショック', type: 'electric', power: 40 },
+  { name: '10まんボルト', type: 'electric', power: 95 },
+  { name: 'かみなり', type: 'electric', power: 120 },
+  { name: 'はっぱカッター', type: 'grass', power: 55 },
+  { name: 'リーフブレード', type: 'grass', power: 70 },
+  { name: 'はなびらのまい', type: 'grass', power: 70 },
+  { name: 'ソーラービーム', type: 'grass', power: 120 },
+  { name: 'れいとうパンチ', type: 'ice', power: 75 },
+  { name: 'れいとうビーム', type: 'ice', power: 95 },
+  { name: 'ふぶき', type: 'ice', power: 120 },
+  { name: 'からてチョップ', type: 'fight', power: 50 },
+  { name: 'とびひざげり', type: 'fight', power: 100 },
+  { name: 'クロスチョップ', type: 'fight', power: 100 },
+  { name: 'ばくれつパンチ', type: 'fight', power: 100 },
+  { name: 'インファイト', type: 'fight', power: 120 },
+  { name: 'ヘドロこうげき', type: 'poison', power: 65 },
+  { name: 'ヘドロばくだん', type: 'poison', power: 90 },
+  { name: 'あなをほる', type: 'ground', power: 60 },
+  { name: 'じしん', type: 'ground', power: 100 },
+  { name: 'エアカッター', type: 'flying', power: 55 },
+  { name: 'つばさでうつ', type: 'flying', power: 60 },
+  { name: 'そらをとぶ', type: 'flying', power: 70 },
+  { name: 'ドリルくちばし', type: 'flying', power: 80 },
+  { name: 'ねんりき', type: 'psychic', power: 50 },
+  { name: 'サイコキネシス', type: 'psychic', power: 90 },
+  { name: 'シザークロス', type: 'bug', power: 80 },
+  { name: 'メガホーン', type: 'bug', power: 120 },
+  { name: 'いわおとし', type: 'rock', power: 50 },
+  { name: 'いわなだれ', type: 'rock', power: 75 },
+  { name: 'シャドーボール', type: 'ghost', power: 80 },
+  { name: 'ドラゴンクロー', type: 'dragon', power: 80 },
+  { name: 'げきりん', type: 'dragon', power: 90 },
+  { name: 'だましうち', type: 'dark', power: 60 },
+  { name: 'つじぎり', type: 'dark', power: 70 },
+  { name: 'かみくだく', type: 'dark', power: 80 },
+  { name: 'メタルクロー', type: 'steel', power: 50 },
+  { name: 'アイアンテール', type: 'steel', power: 100 },
 ];
 
 // ── 実数（ステータス）────────────────────────────────────────────────
@@ -215,7 +370,8 @@ type Input = {
   readonly def: number;
   /** タイプ一致（じぶんと おなじ タイプの わざ）なら 1.5。 */
   readonly stab: boolean;
-  readonly type: number;
+  /** タイプ相性。1つずつ かけて、そのつど きりすてる。 */
+  readonly typeSteps: readonly number[];
   readonly crit: boolean;
   /** てんきの ぶん。1.5 / 1 / 0.5。 */
   readonly weather: number;
@@ -224,26 +380,29 @@ type Input = {
 };
 
 /**
- * 85〜100 の 16通りを 小さい順に かえす。
+ * 85〜100 の 16通りを 小さい順に かえす。第3世代の 順。
  *
- * かける 順番が 結果を 変える（きりすてが 各段で 入るので）。本物と おなじ 順で、
- * もとの数 → てんき → きゅうしょ → らんすう → タイプ一致 → タイプ相性 → やけど。
+ * もとの数 → てんき → やけど → ＋2 → きゅうしょ(×2) → らんすう → タイプ一致 →
+ * タイプ相性。いまの作品は ＋2 を 先に 足して きゅうしょを ×1.5 にするので、
+ * おなじ 場面でも 数が ずれる。
  */
 const damages = (inp: Input): number[] => {
-  if (inp.type === 0) return new Array<number>(16).fill(0);
+  if (inp.typeSteps.some((s) => s === 0)) return new Array<number>(16).fill(0);
 
   const level = Math.floor((inp.level * 2) / 5 + 2);
-  const base = Math.floor(Math.floor((level * inp.power * inp.atk) / inp.def) / 50) + 2;
+  const core = Math.floor(Math.floor((level * inp.power * inp.atk) / inp.def) / 50);
+
+  let fixed = core;
+  fixed = Math.floor(fixed * inp.weather);
+  if (inp.burn) fixed = Math.floor(fixed * 0.5);
+  fixed = Math.max(1, fixed) + 2;
+  if (inp.crit) fixed *= 2;
 
   const out: number[] = [];
   for (let r = 85; r <= 100; r += 1) {
-    let d = base;
-    d = Math.floor(d * inp.weather);
-    if (inp.crit) d = Math.floor(d * 1.5);
-    d = Math.floor((d * r) / 100);
+    let d = Math.floor((fixed * r) / 100);
     if (inp.stab) d = Math.floor(d * 1.5);
-    d = Math.floor(d * inp.type);
-    if (inp.burn) d = Math.floor(d * 0.5);
+    for (const step of inp.typeSteps) d = Math.floor(d * step);
     // 相性が 0 でない かぎり、ダメージは すくなくとも 1。
     out.push(Math.max(1, d));
   }
@@ -271,16 +430,23 @@ const CSS = `
 .pd-card{background:#fffdf7;border:4px solid #78350f;border-radius:18px;
   box-shadow:0 8px 0 rgba(0,0,0,.35);padding:12px;margin-bottom:12px;box-sizing:border-box}
 .pd-card h2{margin:0 0 8px;font-size:.95rem;color:#78350f;display:flex;align-items:center;gap:6px}
-.pd-lead{font-size:.74rem;color:#6b7280;margin:0 0 10px;line-height:1.6}
 .pd-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
 .pd-row>label{flex:0 0 5.6rem;font-size:.76rem;color:#78350f;font-weight:700}
 .pd-row>select,.pd-row>input{flex:1 1 auto;min-width:0;background:#fff;border:2px solid #b45309;
   border-radius:10px;padding:5px 8px;font:inherit;font-size:.82rem;color:#1f2937}
-.pd-row>input[type=number]{flex:0 0 5rem}
-.pd-sub{font-size:.72rem;color:#6b7280;margin:-2px 0 8px}
+.pd-row>input.num{flex:0 0 4.6rem}
 .pd-chips{display:flex;flex-wrap:wrap;gap:4px;margin:-3px 0 8px calc(5.6rem + 8px)}
 .pd-chip{color:#fff;font-size:.68rem;font-weight:700;padding:1px 9px;border-radius:999px;
   text-shadow:1px 1px 1px rgba(0,0,0,.25)}
+.pd-sub{font-size:.72rem;color:#6b7280;margin:-2px 0 0}
+.pd-own{background:#fff7ed;border:2px dashed #b45309;border-radius:12px;padding:8px;margin:0 0 8px}
+.pd-own .pd-row:last-child{margin-bottom:0}
+.pd-own .pd-row>label{flex:0 0 4.6rem}
+.pd-base{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 auto;min-width:0}
+.pd-base div{flex:1 1 4.2rem;min-width:4.2rem}
+.pd-base span{display:block;font-size:.66rem;color:#78350f;font-weight:700;margin-bottom:2px}
+.pd-base input{width:100%;box-sizing:border-box;background:#fff;border:2px solid #b45309;
+  border-radius:8px;padding:4px 6px;font:inherit;font-size:.8rem;color:#1f2937}
 .pd-checks{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px}
 .pd-checks label{font-size:.78rem;color:#78350f;font-weight:700;display:flex;align-items:center;gap:4px}
 .pd-checks input{width:17px;height:17px;accent-color:#b45309}
@@ -292,8 +458,9 @@ const CSS = `
 .pd-ko{font-size:.86rem;font-weight:700;color:#b91c1c;margin:8px 0 0}
 .pd-bar{height:14px;background:#e5e7eb;border:2px solid #78350f;border-radius:999px;
   overflow:hidden;margin:8px 0 0;position:relative}
-.pd-bar i{position:absolute;left:0;top:0;bottom:0;background:#f59e0b;display:block}
+.pd-bar i{position:absolute;left:0;top:0;bottom:0;display:block}
 .pd-bar i.max{background:#fca5a5}
+.pd-bar i.min{background:#f59e0b}
 .pd-table{width:100%;border-collapse:collapse;font-size:.74rem;margin-top:8px}
 .pd-table th,.pd-table td{border-bottom:1px solid #e5e7eb;padding:3px 4px;text-align:left;color:#374151}
 .pd-table td.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -313,32 +480,22 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return node;
 };
 
-/** えらぶ ところを 1つ 作る。値は くらいの 添字（文字列）で もつ。 */
-const select = (options: readonly { readonly value: string; readonly label: string }[],
-  value: string): HTMLSelectElement => {
-  const node = el('select');
-  for (const o of options) {
+type Opt = { readonly value: string; readonly label: string };
+
+const fill = (node: HTMLSelectElement, options: readonly Opt[], value: string): void => {
+  node.replaceChildren(...options.map((o) => {
     const opt = el('option');
     opt.value = o.value;
     opt.textContent = o.label;
-    node.appendChild(opt);
-  }
+    return opt;
+  }));
   node.value = value;
-  return node;
 };
 
-/**
- * 入れた すうじを よむ。
- *
- * 空に したときと 0 を 入れたときを 分ける。`Number(raw) || fallback` で 済ませると、
- * 0 が うその値（falsy）なので、0 を 入れた人に 既定の 50 が 返る——入れた数と
- * 出た数が 合わなくなる。空なら 既定に もどし、0 なら 下限まで 下げる。
- */
-const readNum = (raw: string, fallback: number, lo: number, hi: number): number => {
-  if (raw.trim() === '') return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(lo, Math.min(hi, Math.round(n)));
+const select = (options: readonly Opt[], value: string): HTMLSelectElement => {
+  const node = el('select');
+  fill(node, options, value);
+  return node;
 };
 
 const row = (label: string, ...controls: readonly HTMLElement[]): HTMLElement => {
@@ -348,24 +505,53 @@ const row = (label: string, ...controls: readonly HTMLElement[]): HTMLElement =>
   return r;
 };
 
-const monOptions = MONS.map((m, i) => ({ value: String(i), label: m.name }));
-const moveOptions = MOVES.map((m, i) => ({
-  value: String(i),
-  label: `${m.name}（${TYPE_NAME[m.type]}・${m.cat === 'physical' ? '物理' : '特殊'}・${m.power}）`,
-}));
-const rankOptions = [6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6].map((r) => ({
+/**
+ * 入れた すうじを よむ。
+ *
+ * 空に したときと 0 を 入れたときを 分ける。`Number(raw) || fallback` で 済ませると、
+ * 0 が うその値（falsy）なので、0 を 入れた人に 既定が 返る——入れた数と 出た数が
+ * 合わなくなる。空なら 既定に もどし、0 なら 下限まで 下げる。
+ */
+const readNum = (raw: string, fallback: number, lo: number, hi: number): number => {
+  if (raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, Math.round(n)));
+};
+
+/** 一覧の いちばん上に 置く「じぶんで かく」。図鑑番号と ぶつからない値にする。 */
+const OWN = 'own';
+
+const pad = (n: number): string => String(n).padStart(3, '0');
+
+const monOptions: readonly Opt[] = [
+  { value: OWN, label: '✏️ じぶんで かく' },
+  ...MONS.map((m) => ({ value: String(m.no), label: `${pad(m.no)} ${m.name}` })),
+];
+const moveOptions: readonly Opt[] = [
+  { value: OWN, label: '✏️ じぶんで かく' },
+  ...MOVES.map((m, i) => ({
+    value: String(i),
+    label: `${m.name}（${TYPE_NAME[m.type]}・${isPhysical(m.type) ? '物理' : '特殊'}・${m.power}）`,
+  })),
+];
+const typeOptions: readonly Opt[] = TYPE_ORDER.map((t) => ({ value: t, label: TYPE_NAME[t] }));
+const typeOptionsWithNone: readonly Opt[] = [{ value: '', label: 'なし' }, ...typeOptions];
+const rankOptions: readonly Opt[] = [6, 5, 4, 3, 2, 1, 0, -1, -2, -3, -4, -5, -6].map((r) => ({
   value: String(r),
   label: r === 0 ? '± 0' : r > 0 ? `+ ${r}` : `− ${-r}`,
 }));
-const evOptions = [
+const evOptions: readonly Opt[] = [
   { value: '0', label: '0（ふりきらない）' },
   { value: '252', label: '252（めいっぱい）' },
 ];
-const natureOptions = [
+const natureOptions: readonly Opt[] = [
   { value: '1.1', label: 'あがる（× 1.1）' },
   { value: '1', label: 'ふつう（× 1.0）' },
   { value: '0.9', label: 'さがる（× 0.9）' },
 ];
+
+const MON_BY_NO = new Map(MONS.map((m) => [String(m.no), m]));
 
 const typeChips = (types: readonly TypeKey[]): HTMLElement => {
   const box = el('div', 'pd-chips');
@@ -377,8 +563,83 @@ const typeChips = (types: readonly TypeKey[]): HTMLElement => {
   return box;
 };
 
-const monAt = (sel: HTMLSelectElement): Mon => MONS[Number(sel.value)] ?? MONS[0]!;
-const moveAt = (sel: HTMLSelectElement): Move => MOVES[Number(sel.value)] ?? MOVES[0]!;
+const numInput = (value: string, min: number, max: number): HTMLInputElement => {
+  const node = el('input', 'num');
+  node.type = 'number';
+  node.min = String(min);
+  node.max = String(max);
+  node.value = value;
+  return node;
+};
+
+/**
+ * じぶんで かく ポケモン。
+ *
+ * 一覧は カントー図鑑の 151匹だけ なので、他の地方の ポケモンや、思いついた すうじを
+ * 試すには ここに 書く。すばやさは この どうぐでは 使わないので きかない。
+ */
+type OwnMon = {
+  readonly wrap: HTMLElement;
+  readonly read: () => Mon;
+  /** 入れかえの ときに、書いた 中身ごと 相手がわへ 移すのに 使う。 */
+  readonly write: (mon: Mon) => void;
+};
+
+const ownMon = (name: string): OwnMon => {
+  const wrap = el('div', 'pd-own');
+  const nameInput = el('input');
+  nameInput.type = 'text';
+  nameInput.maxLength = 12;
+  nameInput.value = name;
+  const t1 = select(typeOptions, 'normal');
+  const t2 = select(typeOptionsWithNone, '');
+
+  const labels = ['HP', 'こうげき', 'ぼうぎょ', 'とくこう', 'とくぼう'] as const;
+  const base = el('div', 'pd-base');
+  const inputs = labels.map((label) => {
+    const cell = el('div');
+    cell.appendChild(el('span', undefined, label));
+    const input = el('input');
+    input.type = 'number';
+    input.min = '1';
+    input.max = '255';
+    input.value = '100';
+    cell.appendChild(input);
+    base.appendChild(cell);
+    return input;
+  });
+
+  wrap.append(
+    row('なまえ', nameInput),
+    row('タイプ1', t1),
+    row('タイプ2', t2),
+    row('しゅぞくち', base),
+  );
+
+  const read = (): Mon => {
+    const types: TypeKey[] = [t1.value as TypeKey];
+    // おなじ タイプを 2つ えらんでも、相性を 二重に かけない。
+    if (t2.value && t2.value !== t1.value) types.push(t2.value as TypeKey);
+    const n = inputs.map((i) => readNum(i.value, 100, 1, 255));
+    return {
+      no: 0,
+      name: nameInput.value.trim() || name,
+      types,
+      base: [n[0] ?? 100, n[1] ?? 100, n[2] ?? 100, n[3] ?? 100, n[4] ?? 100],
+    };
+  };
+  const write = (mon: Mon): void => {
+    nameInput.value = mon.name;
+    t1.value = mon.types[0] ?? 'normal';
+    t2.value = mon.types[1] ?? '';
+    mon.base.forEach((v, i) => {
+      const input = inputs[i];
+      if (input) input.value = String(v);
+    });
+  };
+
+  return { wrap, read, write };
+};
 
 export const mountPokeDamage: GameMount = (host, _ctx) => {
   const style = el('style');
@@ -391,30 +652,37 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   // ── せめる がわ ──
   const atkCard = el('div', 'pd-card');
   atkCard.appendChild(el('h2', undefined, '⚔️ せめる ポケモン'));
-  const atkMon = select(monOptions, String(MONS.findIndex((m) => m.name === 'リザードン')));
+  const atkFind = el('input');
+  atkFind.type = 'search';
+  atkFind.placeholder = 'なまえ か ばんごう';
+  const atkMon = select(monOptions, '6');
+  const atkOwn = ownMon('じぶんの ポケモン');
   const atkTypes = el('div');
-  const atkLevel = el('input');
-  atkLevel.type = 'number';
-  atkLevel.min = '1';
-  atkLevel.max = '100';
-  atkLevel.value = '50';
+  const atkLevel = numInput('50', 1, 100);
   const atkEv = select(evOptions, '252');
   const atkNature = select(natureOptions, '1.1');
   const atkRank = select(rankOptions, '0');
   const move = select(moveOptions, String(MOVES.findIndex((m) => m.name === 'だいもんじ')));
-  const power = el('input');
-  power.type = 'number';
-  power.min = '1';
-  power.max = '250';
+  const moveName = el('input');
+  moveName.type = 'text';
+  moveName.maxLength = 12;
+  moveName.value = 'じぶんの わざ';
+  const moveType = select(typeOptions, 'normal');
+  const moveOwn = el('div', 'pd-own');
+  moveOwn.append(row('なまえ', moveName), row('タイプ', moveType));
+  const power = numInput('120', 1, 250);
   const atkNote = el('div', 'pd-sub');
   atkCard.append(
+    row('しぼりこみ', atkFind),
     row('ポケモン', atkMon),
+    atkOwn.wrap,
     atkTypes,
     row('レベル', atkLevel),
     row('どりょく', atkEv),
     row('せいかく', atkNature),
     row('ランク', atkRank),
     row('わざ', move),
+    moveOwn,
     row('いりょく', power),
     atkNote,
   );
@@ -422,20 +690,22 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   // ── まもる がわ ──
   const defCard = el('div', 'pd-card');
   defCard.appendChild(el('h2', undefined, '🛡️ まもる ポケモン'));
-  const defMon = select(monOptions, String(MONS.findIndex((m) => m.name === 'カメックス')));
+  const defFind = el('input');
+  defFind.type = 'search';
+  defFind.placeholder = 'なまえ か ばんごう';
+  const defMon = select(monOptions, '9');
+  const defOwn = ownMon('あいての ポケモン');
   const defTypes = el('div');
-  const defLevel = el('input');
-  defLevel.type = 'number';
-  defLevel.min = '1';
-  defLevel.max = '100';
-  defLevel.value = '50';
+  const defLevel = numInput('50', 1, 100);
   const defHpEv = select(evOptions, '252');
   const defEv = select(evOptions, '252');
   const defNature = select(natureOptions, '1');
   const defRank = select(rankOptions, '0');
   const defNote = el('div', 'pd-sub');
   defCard.append(
+    row('しぼりこみ', defFind),
     row('ポケモン', defMon),
+    defOwn.wrap,
     defTypes,
     row('レベル', defLevel),
     row('HPどりょく', defHpEv),
@@ -459,7 +729,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   burn.type = 'checkbox';
   const checks = el('div', 'pd-checks');
   const critLabel = el('label');
-  critLabel.append(crit, document.createTextNode('きゅうしょに あたる'));
+  critLabel.append(crit, document.createTextNode('きゅうしょに あたる（× 2）'));
   const burnLabel = el('label');
   burnLabel.append(burn, document.createTextNode('せめる がわが やけど'));
   checks.append(critLabel, burnLabel);
@@ -477,7 +747,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const pct = el('p', 'pd-pct');
   const bar = el('div', 'pd-bar');
   const barMax = el('i', 'max');
-  const barMin = el('i');
+  const barMin = el('i', 'min');
   bar.append(barMax, barMin);
   const ko = el('p', 'pd-ko');
   out.append(eff, big, pct, bar, ko);
@@ -487,35 +757,65 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const noteCard = el('div', 'pd-card');
   noteCard.appendChild(el('h2', undefined, '📖 つかっている しき'));
   noteCard.appendChild(el('p', 'pd-note',
-    'ダメージ ＝ （（レベル × 2 ÷ 5 ＋ 2）× いりょく × こうげき ÷ ぼうぎょ ÷ 50 ＋ 2）'
-    + ' × てんき × きゅうしょ × らんすう × タイプ一致 × タイプ相性 × やけど。'
+    'ダメージ ＝ （（レベル × 2 ÷ 5 ＋ 2）× いりょく × こうげき ÷ ぼうぎょ ÷ 50）'
+    + ' × てんき × やけど ＋ 2 → きゅうしょ(× 2) → らんすう → タイプ一致 → タイプ相性。'
+    + ' ファイアレッド（第3世代）の 順で、いまの作品とは ちがう。'
+    + ' 物理か 特殊かは わざ ではなく タイプで 決まり、フェアリーは まだ 無い。'
     + ' らんすうは 0.85 から 1.00 までの 16とおり なので、おなじ わざでも 当たるたびに'
     + ' すこし ちがう。だから こたえは 1つの 数ではなく「いくつから いくつ」に なる。'
-    + ' こたいちは 31、まるめは 各段で きりすて。もちものと とくせいは 入れて いないので、'
-    + ' じっさいの 対戦とは すこし ずれることが ある。'));
+    + ' こたいちは 31。もちもの・とくせい・リフレクターは 入れて いない。'));
 
   app.append(atkCard, defCard, optCard, swap, outCard, noteCard);
 
+  // ── しぼりこみ ──────────────────────────────────────────────────
+
+  /**
+   * 151匹を ぜんぶ ならべると 探しにくいので、なまえか ばんごうで しぼる。
+   *
+   * いま えらんで いる ものは、しぼった 先に 残らなくても 消さない。消すと、
+   * 字を 打った とたんに 選びなおしに なる。
+   */
+  const applyFind = (sel: HTMLSelectElement, find: HTMLInputElement): void => {
+    const q = find.value.trim();
+    const kept = sel.value;
+    const matched = q === ''
+      ? monOptions
+      : monOptions.filter((o) => o.value === OWN || o.value === kept || o.label.includes(q));
+    fill(sel, matched.length > 1 ? matched : monOptions, kept);
+  };
+
   // ── 計算して 出す ────────────────────────────────────────────────
 
+  const currentMon = (sel: HTMLSelectElement, own: OwnMon): Mon =>
+    sel.value === OWN ? own.read() : MON_BY_NO.get(sel.value) ?? MONS[0]!;
+
+  const currentMove = (): Move => move.value === OWN
+    ? { name: moveName.value.trim() || 'じぶんの わざ', type: moveType.value as TypeKey, power: 0 }
+    : MOVES[Number(move.value)] ?? MOVES[0]!;
+
   /** わざを えらび直した ときだけ、いりょくを その わざの ぶんに もどす。 */
-  const resetPower = (): void => { power.value = String(moveAt(move).power); };
-  resetPower();
+  const resetPower = (): void => {
+    power.value = move.value === OWN ? '80' : String(currentMove().power);
+  };
 
   const render = (): void => {
-    const a = monAt(atkMon);
-    const d = monAt(defMon);
-    const mv = moveAt(move);
+    atkOwn.wrap.hidden = atkMon.value !== OWN;
+    defOwn.wrap.hidden = defMon.value !== OWN;
+    moveOwn.hidden = move.value !== OWN;
+
+    const a = currentMon(atkMon, atkOwn);
+    const d = currentMon(defMon, defOwn);
+    const mv = currentMove();
 
     atkTypes.replaceChildren(typeChips(a.types));
     defTypes.replaceChildren(typeChips(d.types));
 
     const aLevel = readNum(atkLevel.value, 50, 1, 100);
     const dLevel = readNum(defLevel.value, 50, 1, 100);
-    const pw = readNum(power.value, mv.power, 1, 250);
+    const pw = readNum(power.value, mv.power || 80, 1, 250);
 
-    // 物理なら こうげき と ぼうぎょ、特殊なら とくこう と とくぼう。
-    const physical = mv.cat === 'physical';
+    // 第3世代では、物理か 特殊かは わざの タイプで 決まる。
+    const physical = isPhysical(mv.type);
     const aBase = physical ? a.base[1] : a.base[3];
     const dBase = physical ? d.base[2] : d.base[4];
 
@@ -528,6 +828,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     const dUsed = Math.max(1, Math.floor(dStat * rankMul(Number(defRank.value))));
 
     const stab = a.types.includes(mv.type);
+    const steps = typeSteps(mv.type, d.types);
     const typeMul = effectiveness(mv.type, d.types);
     const weatherMul = weather.value === 'sun'
       ? (mv.type === 'fire' ? 1.5 : mv.type === 'water' ? 0.5 : 1)
@@ -535,13 +836,13 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
         ? (mv.type === 'water' ? 1.5 : mv.type === 'fire' ? 0.5 : 1)
         : 1;
 
-    // やけどが 効くのは 物理 だけ。特殊を えらんで いるあいだは さわれなくする。
+    // やけどが 効くのは 物理 だけ。特殊の タイプを えらんで いるあいだは さわれなくする。
     burn.disabled = !physical;
     burnLabel.style.opacity = physical ? '1' : '.45';
 
     const rolls = damages({
       level: aLevel, power: pw, atk: aUsed, def: dUsed,
-      stab, type: typeMul, crit: crit.checked, weather: weatherMul,
+      stab, typeSteps: steps, crit: crit.checked, weather: weatherMul,
       burn: physical && burn.checked,
     });
     const lo = rolls[0] ?? 0;
@@ -596,7 +897,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       ['タイプ一致', stab ? '× 1.5' : '× 1'],
       ['タイプ相性', `× ${typeMul}`],
       ['てんき', `× ${weatherMul}`],
-      ['きゅうしょ', crit.checked ? '× 1.5' : '× 1'],
+      ['きゅうしょ', crit.checked ? '× 2' : '× 1'],
       ['やけど', physical && burn.checked ? '× 0.5' : '× 1'],
     ];
     for (const [k, v] of lines) {
@@ -606,22 +907,33 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     }
   };
 
-  // 入れかえは ポケモンと レベルだけ。わざは せめる がわの もので、入れかえても
+  // 入れかえるのは ポケモンと レベル。わざは せめる がわの もので、入れかえても
   // 持ちかえられない（ここで わざも 変えると、何を えらんで いたか 分からなくなる）。
+  //
+  // じぶんで かいた 中身も いっしょに 移す。えらびかただけ 交換すると、「じぶんで かく」
+  // を えらんで いた がわが、相手がわの 書きかけ（まだ 何も 書いて いない まっさらな
+  // すうじ）に すり替わる——画面の 見た目が 入れかえに なって いない。
   const onSwap = (): void => {
     const monValue = atkMon.value;
-    atkMon.value = defMon.value;
-    defMon.value = monValue;
+    atkFind.value = '';
+    defFind.value = '';
+    fill(atkMon, monOptions, defMon.value);
+    fill(defMon, monOptions, monValue);
     const levelValue = atkLevel.value;
     atkLevel.value = defLevel.value;
     defLevel.value = levelValue;
+    const written = atkOwn.read();
+    atkOwn.write(defOwn.read());
+    defOwn.write(written);
     render();
   };
 
   // どれが 変わっても やることは おなじ（計算を やり直す）ので、1つずつ つなぐより
-  // まとめて 1か所で 受ける。わざだけは、えらび直した ときに いりょくを もどす。
+  // まとめて 1か所で 受ける。わざと しぼりこみ だけは、先に ひと手間 入れる。
   const onChange = (e: Event): void => {
     if (e.target === move) resetPower();
+    if (e.target === atkFind) applyFind(atkMon, atkFind);
+    if (e.target === defFind) applyFind(defMon, defFind);
     render();
   };
 
