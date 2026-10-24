@@ -1165,13 +1165,17 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
 
   const isTyped = (side: SideKey): boolean => ctl[side].source.value === 'typed';
 
-  // 「むき」。どちらが せめるかを 決める。
-  const dir = select([
-    { value: 'mine', label: 'じぶん → あいて（こちらが せめる）' },
-    { value: 'theirs', label: 'あいて → じぶん（こちらが 受ける）' },
-  ], 'mine');
-  const attacker = (): SideKey => (dir.value === 'theirs' ? 'theirs' : 'mine');
-  const defender = (): SideKey => (dir.value === 'theirs' ? 'mine' : 'theirs');
+  /**
+   * いま 下の「けいさん」に 出して いる のは どちらの こうげきか。
+   *
+   * えらびかた としては 出さない。総当たりの 表を 2つ（じぶんの こうげき・あいての
+   * こうげき）出すので、見たい ますを 押せば そちらに 変わる。えらびかたを 別に 置くと、
+   * 表が 2つ あるのに むきが 1つ、という ちぐはぐな かたちに なる。
+   */
+  let direction: SideKey = 'mine';
+  const other = (side: SideKey): SideKey => (side === 'mine' ? 'theirs' : 'mine');
+  const attacker = (): SideKey => direction;
+  const defender = (): SideKey => other(direction);
 
   // ── 1匹ぶんの すうじ ──────────────────────────────────────────
 
@@ -1231,9 +1235,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const burn = el('input');
   burn.type = 'checkbox';
 
-  const pairOf = (atkSlot: Slot, defSlot: Slot): Pair => {
-    const atkSide = attacker();
-    const defSide = defender();
+  const pairOf = (atkSlot: Slot, defSlot: Slot, atkSide: SideKey): Pair => {
+    const defSide = other(atkSide);
     const mv = moveOf(atkSlot);
     const physical = isPhysical(mv.type);
     const atkMon = monOf(atkSlot);
@@ -1515,7 +1518,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const burnLabel = el('label');
   burnLabel.append(burn, document.createTextNode('せめる がわが やけど'));
   checks.append(critLabel, burnLabel);
-  optCard.append(row('むき', dir), row('てんき', weather), checks);
+  optCard.append(row('てんき', weather), checks);
 
   // ── こたえ ────────────────────────────────────────────────────
 
@@ -1539,9 +1542,14 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
 
   const mxCard = el('div', 'pd-card');
   mxCard.appendChild(el('h2', undefined, '🔢 てもち × てもち'));
-  const mxNote = el('p', 'pd-note');
-  const mx = el('div', 'pd-mx');
-  mxCard.append(mxNote, mx);
+  const mineMxNote = el('p', 'pd-note');
+  const mineMx = el('div', 'pd-mx');
+  const theirsMxNote = el('p', 'pd-note');
+  const theirsMx = el('div', 'pd-mx');
+  mxCard.append(
+    el('h3', undefined, '⚔️ じぶんの こうげき'), mineMxNote, mineMx,
+    el('h3', undefined, '🛡️ あいての こうげき'), theirsMxNote, theirsMx,
+  );
 
   const noteCard = el('div', 'pd-card');
   noteCard.appendChild(el('h2', undefined, '📖 つかっている しき'));
@@ -1691,22 +1699,25 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   /**
    * せめる がわ ぜんいん × 受ける がわ ぜんいんの 総当たり。
    *
+   * むきが ちがう 2つを 両方 出す。どちらの こうげきも 同じ 画面で 見たい——
+   * 「こちらが 何発で 倒せるか」だけ 分かっても、「向こうが 何発で 倒してくるか」が
+   * 見えなければ、どちらが 先に 倒れるかは 決められない。
+   *
    * ますには「かくじつに たおせる 回数」を 出す。いちばん 小さい ダメージで 数えるので、
    * ここに 3 と 出て いれば、運が わるくても 3発で 終わる。下の % は いちばん 大きい
    * ダメージの ぶん。ますを 押すと、その 組み合わせが 上の けいさんに 出る。
    */
-  const renderMatrix = (): void => {
-    const atkSide = attacker();
-    const defSide = defender();
-    mxNote.textContent = atkSide === 'mine'
-      ? 'よこが あいて、たては じぶん。ますの すうじは、かくじつに たおせる はっすう。'
-      : 'よこが じぶん、たては あいて。ますの すうじは、かくじつに たおされる はっすう。';
+  const renderMatrix = (atkSide: SideKey, box: HTMLElement, note: HTMLElement): void => {
+    const defSide = other(atkSide);
+    note.textContent = atkSide === 'mine'
+      ? 'たてが じぶん、よこが あいて。ますの すうじは、かくじつに たおせる はっすう。'
+      : 'たてが あいて、よこが じぶん。ますの すうじは、かくじつに たおされる はっすう。';
 
-    const table2 = el('table');
+    const table = el('table');
     const head = el('tr');
     head.appendChild(el('th', 'rh', ''));
     for (const d of slots[defSide]) head.appendChild(el('th', undefined, monOf(d).name));
-    table2.appendChild(head);
+    table.appendChild(head);
 
     for (const a of slots[atkSide]) {
       const tr = el('tr');
@@ -1714,7 +1725,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
       th.append(document.createTextNode(monOf(a).name), el('small', undefined, moveOf(a).name));
       tr.appendChild(th);
       for (const d of slots[defSide]) {
-        const pair = pairOf(a, d);
+        const pair = pairOf(a, d, atkSide);
         const td = el('td');
         if (pair.typeMul === 0) {
           td.className = 'k0';
@@ -1727,23 +1738,24 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
             el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
           );
         }
-        if (a.radio.checked && d.radio.checked) td.classList.add('sel');
+        if (direction === atkSide && a.radio.checked && d.radio.checked) td.classList.add('sel');
         td.addEventListener('click', () => {
+          direction = atkSide;
           a.radio.checked = true;
           d.radio.checked = true;
           render();
         });
         tr.appendChild(td);
       }
-      table2.appendChild(tr);
+      table.appendChild(tr);
     }
-    mx.replaceChildren(table2);
+    box.replaceChildren(table);
   };
 
   function render(): void {
     const atkSide = attacker();
     const defSide = defender();
-    const pair = pairOf(chosen(atkSide), chosen(defSide));
+    const pair = pairOf(chosen(atkSide), chosen(defSide), atkSide);
 
     // やけどが 効くのは 物理 だけ。特殊の タイプの あいだは さわれなくする。
     burn.disabled = !pair.physical;
@@ -1760,7 +1772,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     renderSide(atkSide, 'attack', pair);
     renderSide(defSide, 'defend', pair);
     renderOut(pair);
-    renderMatrix();
+    renderMatrix('mine', mineMx, mineMxNote);
+    renderMatrix('theirs', theirsMx, theirsMxNote);
   }
 
   // どれが 変わっても やることは おなじ（計算を やり直す）ので、1つずつ つなぐより
