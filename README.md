@@ -13,6 +13,10 @@ src/types.ts      あそびばとの約束ごと。これだけが front と共�
 src/tennis.ts     ゲーム1本 = 1ファイル（ペットだけ大きいので src/pet/ に分けてある）
 ```
 
+遊んで点を出すものばかりではない。使う類（`src/pokedamage.ts`）もここに置く。形は同じ
+`GameMount` で、違うのは `ctx.onFinish` を一度も呼ばないことだけ。点が出ないものは front
+側の表で `ranking: 'none'` にする——そうしないと、埋まることのない空のランキングが並ぶ。
+
 ## ゲームの形
 
 1本のゲームは `GameMount` を1つ出す。
