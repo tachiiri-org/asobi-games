@@ -751,18 +751,23 @@ const CSS = `
   color:#1f2937;box-sizing:border-box;padding:10px 8px 28px;
   font:14px/1.7 'Hiragino Maru Gothic ProN','Arial Rounded MT Bold',system-ui,sans-serif;
   -webkit-text-size-adjust:100%}
-.pd-app{max-width:480px;margin:0 auto}
+.pd-app{max-width:940px;margin:0 auto}
+/* 出し入れする ところは hidden で ふせる。.pd-row に display:flex を 当てて いるので、
+   これが 無いと ブラウザが もつ [hidden] の 既定を 上書きして しまって 消えない。 */
+.pd [hidden]{display:none!important}
 .pd-card{background:#fffdf7;border:4px solid #78350f;border-radius:18px;
   box-shadow:0 8px 0 rgba(0,0,0,.35);padding:12px;margin-bottom:12px;box-sizing:border-box}
 .pd-card h2{margin:0 0 8px;font-size:.95rem;color:#78350f;display:flex;align-items:center;gap:6px}
-.pd-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.pd-tab{background:#e7e5e4;color:#78350f;padding:.6rem .2rem;font-size:.86rem;border:0;
-  border-bottom:4px solid #a8a29e;border-radius:.75rem;font-weight:700;cursor:pointer;
-  font-family:inherit;transition:all .1s}
-.pd-tab:active{transform:translateY(2px);border-bottom-width:2px}
-.pd-tab.on{background:#f59e0b;color:#fff;border-bottom-color:#b45309;
-  text-shadow:1px 1px 2px rgba(0,0,0,.3)}
-.pd-tab .sw{display:block;font-size:.66rem;font-weight:400;opacity:.85}
+/* 2つを ならべる。入れ物が せまければ たてに、ひろければ 左右に。
+   画面の はばを 見る 書き方（メディアクエリ）だと、ゲームの 置き場が 画面より
+   せまい ときに 2列に なって、はみ出す。入る だけ ならべる 書き方に して ある。 */
+.pd-parties{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));
+  gap:0 12px;align-items:start}
+.pd-parties>.pd-card{min-width:0}
+.pd-role{margin-left:auto;background:#e7e5e4;color:#78350f;font-size:.66rem;font-weight:700;
+  padding:1px 9px;border-radius:999px}
+.pd-role.atk{background:#f59e0b;color:#fff;text-shadow:1px 1px 1px rgba(0,0,0,.25)}
+
 .pd-card h3{margin:12px 0 6px;font-size:.76rem;color:#78350f;border-top:2px dotted #d6d3d1;
   padding-top:8px}
 .pd-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
@@ -1148,6 +1153,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     readonly typedWrap: HTMLElement;
     readonly typedInputs: readonly HTMLInputElement[];
     readonly note: HTMLElement;
+    readonly roleTag: HTMLElement;
     readonly ivRow: HTMLElement;
     readonly hpEvRow: HTMLElement;
     readonly evRow: HTMLElement;
@@ -1304,7 +1310,10 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
 
   const buildSide = (side: SideKey, title: string, firstNo: string, secondNo: string): HTMLElement => {
     const card = el('div', 'pd-card');
-    card.appendChild(el('h2', undefined, title));
+    const heading = el('h2', undefined, title);
+    const roleTag = el('span', 'pd-role');
+    heading.appendChild(roleTag);
+    card.appendChild(heading);
 
     const find = el('input');
     find.type = 'search';
@@ -1478,7 +1487,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     detail[side] = {
       ownWrap, ownName, ownT1, ownT2, ownBase, types, seed,
       moveWrap, moveName, moveType, powerRow, power: powerInput,
-      typedWrap, typedInputs, note, ivRow, hpEvRow, evRow, natureRow,
+      typedWrap, typedInputs, note, roleTag, ivRow, hpEvRow, evRow, natureRow,
     };
     return card;
   };
@@ -1487,33 +1496,14 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const theirsCard = buildSide('theirs', '👹 あいての てもち', '16', '19');
 
   /**
-   * てもちは 1がわずつ 出す。
+   * てもちは 2つ ならべて、どちらも 出したまま にする。
    *
-   * 2まいを たてに ならべると、1匹 入れかえる たびに 下まで 転がす ことに なる——
-   * 1がわで 6匹 ＋ えらんで いる 子の 中身 ＋ ぜんいんの せってい まで あるので、
-   * カード1まいで もう 画面 1つぶん ある。けいさんと 総当たりの 表は、どちらの がわを
-   * 開いて いても 下に 出したまま にする。切りかえの たびに こたえが 消えると、
-   * 何を いじって いるのか 分からなくなる。
+   * 片がわずつ 切りかえる 形に すると、相手を 見ながら こちらを 直す ことが できない——
+   * この どうぐで やりたいのは まさに それ。画面が 横に 広い ときは 左右に、せまい
+   * ときは たてに 2つ ならぶ。
    */
-  const tabs = el('div', 'pd-tabs');
-  const mineTab = el('button', 'pd-tab on');
-  const theirsTab = el('button', 'pd-tab');
-  mineTab.type = 'button';
-  theirsTab.type = 'button';
-  const mineCount = el('span', 'sw');
-  const theirsCount = el('span', 'sw');
-  mineTab.append(document.createTextNode('🎒 じぶんの てもち'), mineCount);
-  theirsTab.append(document.createTextNode('👹 あいての てもち'), theirsCount);
-  tabs.append(mineTab, theirsTab);
-
-  const showSide = (side: SideKey): void => {
-    mineTab.classList.toggle('on', side === 'mine');
-    theirsTab.classList.toggle('on', side === 'theirs');
-    mineCard.hidden = side !== 'mine';
-    theirsCard.hidden = side !== 'theirs';
-  };
-  mineTab.addEventListener('click', () => showSide('mine'));
-  theirsTab.addEventListener('click', () => showSide('theirs'));
+  const parties = el('div', 'pd-parties');
+  parties.append(mineCard, theirsCard);
 
   // ── そのほか ──────────────────────────────────────────────────
 
@@ -1571,8 +1561,7 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     + ' ステータスの がめんの すうじを そのまま 書く。'
     + ' もちもの・とくせい・リフレクターは 入れて いない。'));
 
-  app.append(tabs, mineCard, theirsCard, optCard, outCard, mxCard, noteCard);
-  showSide('mine');
+  app.append(parties, optCard, outCard, mxCard, noteCard);
 
   // ── 出す ──────────────────────────────────────────────────────
 
@@ -1760,10 +1749,13 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     burn.disabled = !pair.physical;
     burnLabel.style.opacity = pair.physical ? '1' : '.45';
 
-    // タブの 下の 行。開いて いない がわが 何匹で、どちらが せめるかを ここで 見せる。
-    // 切りかえずに 分かる ように して おかないと、閉じて いる がわが 置き去りに なる。
-    mineCount.textContent = `${slots.mine.length}ひき・${atkSide === 'mine' ? 'せめる' : 'うける'}`;
-    theirsCount.textContent = `${slots.theirs.length}ひき・${atkSide === 'theirs' ? 'せめる' : 'うける'}`;
+    // どちらが せめるかは 見出しに 出す。「むき」の えらびかたは ずっと 下に あるので、
+    // てもちを 見て いる ときに、いま どちらの 立場かが 分からなくなる。
+    for (const side of ['mine', 'theirs'] as const) {
+      const attacking = side === atkSide;
+      detail[side].roleTag.textContent = attacking ? '⚔️ せめる' : '🛡️ うける';
+      detail[side].roleTag.classList.toggle('atk', attacking);
+    }
 
     renderSide(atkSide, 'attack', pair);
     renderSide(defSide, 'defend', pair);
