@@ -755,6 +755,14 @@ const CSS = `
 .pd-card{background:#fffdf7;border:4px solid #78350f;border-radius:18px;
   box-shadow:0 8px 0 rgba(0,0,0,.35);padding:12px;margin-bottom:12px;box-sizing:border-box}
 .pd-card h2{margin:0 0 8px;font-size:.95rem;color:#78350f;display:flex;align-items:center;gap:6px}
+.pd-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.pd-tab{background:#e7e5e4;color:#78350f;padding:.6rem .2rem;font-size:.86rem;border:0;
+  border-bottom:4px solid #a8a29e;border-radius:.75rem;font-weight:700;cursor:pointer;
+  font-family:inherit;transition:all .1s}
+.pd-tab:active{transform:translateY(2px);border-bottom-width:2px}
+.pd-tab.on{background:#f59e0b;color:#fff;border-bottom-color:#b45309;
+  text-shadow:1px 1px 2px rgba(0,0,0,.3)}
+.pd-tab .sw{display:block;font-size:.66rem;font-weight:400;opacity:.85}
 .pd-card h3{margin:12px 0 6px;font-size:.76rem;color:#78350f;border-top:2px dotted #d6d3d1;
   padding-top:8px}
 .pd-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
@@ -1478,6 +1486,35 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   const mineCard = buildSide('mine', '🎒 じぶんの てもち', '4', '25');
   const theirsCard = buildSide('theirs', '👹 あいての てもち', '16', '19');
 
+  /**
+   * てもちは 1がわずつ 出す。
+   *
+   * 2まいを たてに ならべると、1匹 入れかえる たびに 下まで 転がす ことに なる——
+   * 1がわで 6匹 ＋ えらんで いる 子の 中身 ＋ ぜんいんの せってい まで あるので、
+   * カード1まいで もう 画面 1つぶん ある。けいさんと 総当たりの 表は、どちらの がわを
+   * 開いて いても 下に 出したまま にする。切りかえの たびに こたえが 消えると、
+   * 何を いじって いるのか 分からなくなる。
+   */
+  const tabs = el('div', 'pd-tabs');
+  const mineTab = el('button', 'pd-tab on');
+  const theirsTab = el('button', 'pd-tab');
+  mineTab.type = 'button';
+  theirsTab.type = 'button';
+  const mineCount = el('span', 'sw');
+  const theirsCount = el('span', 'sw');
+  mineTab.append(document.createTextNode('🎒 じぶんの てもち'), mineCount);
+  theirsTab.append(document.createTextNode('👹 あいての てもち'), theirsCount);
+  tabs.append(mineTab, theirsTab);
+
+  const showSide = (side: SideKey): void => {
+    mineTab.classList.toggle('on', side === 'mine');
+    theirsTab.classList.toggle('on', side === 'theirs');
+    mineCard.hidden = side !== 'mine';
+    theirsCard.hidden = side !== 'theirs';
+  };
+  mineTab.addEventListener('click', () => showSide('mine'));
+  theirsTab.addEventListener('click', () => showSide('theirs'));
+
   // ── そのほか ──────────────────────────────────────────────────
 
   const optCard = el('div', 'pd-card');
@@ -1534,7 +1571,8 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     + ' ステータスの がめんの すうじを そのまま 書く。'
     + ' もちもの・とくせい・リフレクターは 入れて いない。'));
 
-  app.append(mineCard, theirsCard, optCard, outCard, mxCard, noteCard);
+  app.append(tabs, mineCard, theirsCard, optCard, outCard, mxCard, noteCard);
+  showSide('mine');
 
   // ── 出す ──────────────────────────────────────────────────────
 
@@ -1721,6 +1759,11 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     // やけどが 効くのは 物理 だけ。特殊の タイプの あいだは さわれなくする。
     burn.disabled = !pair.physical;
     burnLabel.style.opacity = pair.physical ? '1' : '.45';
+
+    // タブの 下の 行。開いて いない がわが 何匹で、どちらが せめるかを ここで 見せる。
+    // 切りかえずに 分かる ように して おかないと、閉じて いる がわが 置き去りに なる。
+    mineCount.textContent = `${slots.mine.length}ひき・${atkSide === 'mine' ? 'せめる' : 'うける'}`;
+    theirsCount.textContent = `${slots.theirs.length}ひき・${atkSide === 'theirs' ? 'せめる' : 'うける'}`;
 
     renderSide(atkSide, 'attack', pair);
     renderSide(defSide, 'defend', pair);
