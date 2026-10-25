@@ -2102,9 +2102,19 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     save();
   }
 
-  /** 置き場に 書く 予定に 入れる。実際に 出るのは すこし あと（まとめて 出る）。 */
+  /**
+   * 置き場に 書く 予定に 入れる。実際に 出るのは すこし あと（まとめて 出る）。
+   *
+   * 中身が 変わって いない ときは 書かない。書き直しは ひらいた だけでも 走るので、
+   * そのまま つなぐと、見に 来ただけの ときや、画の とりこみ の ときにも 書いて しまう。
+   */
   function save(): void {
-    if (saving) ctx.save.put(snapshot());
+    if (!saving) return;
+    const next = snapshot();
+    const json = JSON.stringify(next);
+    if (json === lastSaved) return;
+    lastSaved = json;
+    ctx.save.put(next);
   }
 
   // どれが 変わっても やることは おなじ（計算を やり直す）ので、1つずつ つなぐより
@@ -2223,6 +2233,8 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
   // 読めるまでは 書かない。読めなかったのを「まだ 無い」と 取りちがえると、
   // つぎの 保存が 置いて あった てもちを 空で 上書きする。
   let saving = false;
+  /** 最後に 置いた 中身。おなじ ものを もう一度 書かない ための 目じるし。 */
+  let lastSaved: string | null = null;
 
   host.replaceChildren(style, page);
   render();
@@ -2239,8 +2251,11 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
         ctx.setStatus('まえの ぶんが こわれて いたので、あたらしく はじめます');
       }
     }
+    // 読みおえた ところの 中身を 目じるしに して おく。ここで 1回 書くと、ひらいた
+    // だけで 置き場に 触る ことに なる——置いて ある ものと おなじ 中身を、わざわざ
+    // 書き直す 形に なる。
     saving = true;
-    save();
+    lastSaved = JSON.stringify(snapshot());
   })();
 
   return () => {
