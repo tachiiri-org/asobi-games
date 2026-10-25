@@ -659,6 +659,7 @@ const MOVES: readonly Move[] = [
   { name: 'れんぞくぎり', type: 'bug', power: 10 },
   { name: 'ミサイルばり', type: 'bug', power: 14 },
   { name: 'きゅうけつ', type: 'bug', power: 20 },
+  { name: 'ぎんいろのかぜ', type: 'bug', power: 60 },
   { name: 'シグナルビーム', type: 'bug', power: 75 },
   { name: 'メガホーン', type: 'bug', power: 120 },
   { name: 'ロックブラスト', type: 'rock', power: 25 },
@@ -859,12 +860,14 @@ type Input = {
   readonly weather: number;
   /** やけど。物理の ときだけ 0.5。 */
   readonly burn: boolean;
+  /** かべ（リフレクター・ひかりのかべ）。かかって いれば 0.5。 */
+  readonly screen: boolean;
 };
 
 /**
  * 85〜100 の 16通りを 小さい順に かえす。第3世代の 順。
  *
- * もとの数 → てんき → やけど → ＋2 → きゅうしょ(×2) → もちもの → らんすう →
+ * もとの数 → かべ → てんき → やけど → ＋2 → きゅうしょ(×2) → もちもの → らんすう →
  * タイプ一致 → タイプ相性。いまの作品は ＋2 を 先に 足して きゅうしょを ×1.5 に
  * するので、おなじ 場面でも 数が ずれる。
  */
@@ -875,6 +878,8 @@ const damages = (inp: Input): number[] => {
   const core = Math.floor(Math.floor((level * inp.power * inp.atk) / inp.def) / 50);
 
   let fixed = core;
+  // きゅうしょに あたると、かべは 無かった ことに なる。
+  if (inp.screen && !inp.crit) fixed = Math.floor(fixed * 0.5);
   fixed = Math.floor(fixed * inp.weather);
   if (inp.burn) fixed = Math.floor(fixed * 0.5);
   fixed = Math.max(1, fixed) + 2;
@@ -990,24 +995,18 @@ const CSS = `
 .pd-table th,.pd-table td{border-bottom:1px solid #e5e7eb;padding:3px 4px;text-align:left;color:#374151}
 .pd-table td.num{text-align:right;font-variant-numeric:tabular-nums}
 .pd-mx{overflow-x:auto}
-.pd-mx table{border-collapse:collapse;font-size:.68rem;min-width:100%}
-.pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:3px 4px;text-align:center;white-space:nowrap}
+.pd-mx table{border-collapse:collapse;font-size:.82rem;min-width:100%}
+.pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:7px 8px;text-align:center;white-space:nowrap}
 .pd-mx th{color:#78350f;font-weight:700;background:#fffdf7}
-.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:7rem;max-width:9.5rem;
-  white-space:normal}
-.pd-mx th.rh .nm{font-weight:700}
-.pd-mx th.rh .mv{display:block;width:100%;text-align:left;background:none;border:0;padding:1px 0;
-  font:inherit;font-size:.7rem;font-weight:700;color:#b45309;cursor:pointer}
-.pd-mx th.rh .mv:active{opacity:.6}
-.pd-mx th.rh .mvlist{display:flex;flex-direction:column;gap:2px;margin-top:3px;background:#fff7ed;
-  border:2px solid #b45309;border-radius:8px;padding:3px}
-.pd-mx th.rh .mvlist button{background:none;border:0;padding:3px 5px;font:inherit;font-size:.68rem;
-  color:#78350f;text-align:left;cursor:pointer;border-radius:5px}
-.pd-mx th.rh .mvlist button:active{background:#fde68a}
-.pd-mx th.rh .mvlist .none{font-size:.66rem;color:#9ca3af;padding:3px 5px}
+/* 名前の はしらは 横に ながしても 残す。わざの 行が 多いので、どの子の 行かを 見失う。 */
+.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:5.5rem;
+  vertical-align:top;white-space:normal}
+.pd-mx th.rh .nm{font-weight:700;font-size:.86rem}
+.pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.78rem}
+.pd-mx th.mh.on{color:#b45309;font-weight:700}
 .pd-mx td{cursor:pointer;font-variant-numeric:tabular-nums}
-.pd-mx td b{display:block;font-size:.78rem;color:#78350f}
-.pd-mx td small{color:#6b7280}
+.pd-mx td b{display:block;font-size:1rem;color:#78350f}
+.pd-mx td small{color:#6b7280;font-size:.74rem}
 .pd-mx td.k1{background:#fecaca}
 .pd-mx td.k2{background:#fed7aa}
 .pd-mx td.k3{background:#fef9c3}
@@ -1225,7 +1224,7 @@ const numInput = (cls: string, value: string, min: number, max: number): HTMLInp
 /**
  * わざの 一覧を タイプごとに まとめる。
  *
- * 129本を 1列に ならべると 探せない。まとめると ついでに、どの タイプが 物理で
+ * 130本を 1列に ならべると 探せない。まとめると ついでに、どの タイプが 物理で
  * どれが 特殊かも 見える——第3世代は そこが わざ ではなく タイプで 決まるので、
  * いまの作品から 来た人が いちばん まちがえる ところ。
  */
@@ -1451,8 +1450,6 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
    * 表が 2つ あるのに むきが 1つ、という ちぐはぐな かたちに なる。
    */
   let direction: SideKey = 'mine';
-  /** 表の 中で わざの えらびかたを ひらいて いる 1匹。ひらいて いなければ null。 */
-  let picker: Slot | null = null;
   const other = (side: SideKey): SideKey => (side === 'mine' ? 'theirs' : 'mine');
   const attacker = (): SideKey => direction;
   const defender = (): SideKey => other(direction);
@@ -1527,6 +1524,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     readonly burn: boolean;
     readonly crit: boolean;
     readonly item: number;
+    readonly screen: boolean;
     /** きかない ときに、止めて いる とくせいの なまえ。タイプの せい なら null。 */
     readonly blockedBy: string | null;
     readonly defAbility: string;
@@ -1541,10 +1539,15 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
   crit.type = 'checkbox';
   const burn = el('input');
   burn.type = 'checkbox';
+  // かべ。受ける がわに かかって いる もの。物理は リフレクター、特殊は ひかりのかべ。
+  const reflect = el('input');
+  reflect.type = 'checkbox';
+  const screenLight = el('input');
+  screenLight.type = 'checkbox';
 
-  const pairOf = (atkSlot: Slot, defSlot: Slot, atkSide: SideKey): Pair => {
+  const pairOf = (atkSlot: Slot, defSlot: Slot, atkSide: SideKey, moveIndex?: number): Pair => {
     const defSide = other(atkSide);
-    const mv = moveOf(atkSlot);
+    const mv = moveIndex === undefined ? moveOf(atkSlot) : moveAt(atkSlot, moveIndex);
     const physical = isPhysical(mv.type);
     const atkMon = monOf(atkSlot);
     const defMon = monOf(defSlot);
@@ -1583,6 +1586,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
         ? (mv.type === 'water' ? 1.5 : mv.type === 'fire' ? 0.5 : 1)
         : 1;
     const burned = physical && burn.checked;
+    const screened = physical ? reflect.checked : screenLight.checked;
     const power = powerFor(mv, defMon);
     const held = itemOf(atkSlot);
     const itemMul = held?.boostType === mv.type && itemWorks(held, atkMon) ? 1.1 : 1;
@@ -1590,13 +1594,13 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const rolls = damages({
       level: levelOf(atkSlot), power, atk: atkUsed, def: defUsed,
       stab, typeSteps: steps, crit: crit.checked, item: itemMul,
-      weather: weatherMul, burn: burned,
+      weather: weatherMul, burn: burned, screen: screened,
     });
     return {
       mv, power, physical, atkMon, defMon, atkStat, defStat, atkUsed, defUsed, hp, stab, typeMul,
       blockedBy, defAbility,
       lo: rolls[0] ?? 0, hi: rolls[rolls.length - 1] ?? 0,
-      weather: weatherMul, burn: burned, crit: crit.checked, item: itemMul,
+      weather: weatherMul, burn: burned, crit: crit.checked, item: itemMul, screen: screened,
     };
   };
 
@@ -1919,7 +1923,17 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
   const burnLabel = el('label');
   burnLabel.append(burn, document.createTextNode('せめる がわが やけど'));
   checks.append(critLabel, burnLabel);
-  optCard.append(row('てんき', weather), checks);
+
+  // かべは 受ける がわに かかる。物理には リフレクター、特殊には ひかりのかべ。
+  // きゅうしょに あたると、どちらも 無かった ことに なる。
+  const walls = el('div', 'pd-checks');
+  const reflectLabel = el('label');
+  reflectLabel.append(reflect, document.createTextNode('リフレクター（物理が はんぶん）'));
+  const lightLabel = el('label');
+  lightLabel.append(screenLight, document.createTextNode('ひかりのかべ（特殊が はんぶん）'));
+  walls.append(reflectLabel, lightLabel);
+
+  optCard.append(row('てんき', weather), checks, el('h3', undefined, '🧱 まもる がわの かべ'), walls);
 
   // ── こたえ ────────────────────────────────────────────────────
 
@@ -1974,7 +1988,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     + ' ちくでん・あついしぼう・ふしぎなまもり・ぼうおん・ちからもち・ヨガパワー・'
     + ' はりきり・ノーてんき・エアロック）。'
     + ' しんりょく・もうか・げきりゅう・むしのしらせ は 残りHP、こんじょう は じょうたいで'
-    + ' 変わる ので、この どうぐでは 見て いない。リフレクターも 入れて いない。'));
+    + ' 変わる ので、この どうぐでは 見て いない。'));
 
   app.append(parties, optCard, outCard, mxCard, noteCard);
 
@@ -2122,6 +2136,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
       ['まもる がわの とくせい', pair.defAbility
         ? `${pair.defAbility}${abilityWord(pair.defAbility) ? `（${abilityWord(pair.defAbility)}）` : ''}`
         : 'なし'],
+      ['かべ', pair.screen && !pair.crit ? '× 0.5' : '× 1'],
       ['きゅうしょ', pair.crit ? '× 2' : '× 1'],
       ['もちもの', pair.item === 1 ? '× 1' : `× ${pair.item}`],
       ['やけど', pair.burn ? '× 0.5' : '× 1'],
@@ -2152,70 +2167,59 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
 
     const table = el('table');
     const head = el('tr');
-    head.appendChild(el('th', 'rh', ''));
+    head.append(el('th', 'rh', ''), el('th', 'mh', 'わざ'));
     for (const d of slots[defSide]) head.appendChild(el('th', undefined, monOf(d).name));
     table.appendChild(head);
 
     for (const a of slots[atkSide]) {
-      const tr = el('tr');
-      const th = el('th', 'rh');
-      th.appendChild(el('div', 'nm', monOf(a).name));
+      // 覚えて いる わざを ぜんぶ 行に する。1つの わざだけ 出して 押しかえる 形だと、
+      // どの わざが いちばん 効くかを 見くらべる のに、何度も 押す ことに なる。
+      const filled = filledMoves(a);
+      const indexes = filled.length ? filled : [activeIndex(a)];
+      const active = activeIndex(a);
 
-      // 名前の 下に、いま つかう わざ。押すと のこりの わざが 出て、えらべる。
-      // 4つを ずっと ならべると 表が 読めなく なるので、ふだんは 1つだけ 出す。
-      const pick = el('button', 'mv', `${moveOf(a).name} ▾`);
-      pick.type = 'button';
-      pick.addEventListener('click', () => {
-        picker = picker === a ? null : a;
-        render();
-      });
-      th.appendChild(pick);
+      indexes.forEach((i, nth) => {
+        const tr = el('tr');
+        if (nth === 0) {
+          const th = el('th', 'rh');
+          th.rowSpan = indexes.length;
+          th.appendChild(el('div', 'nm', monOf(a).name));
+          tr.appendChild(th);
+        }
+        const mh = el('th', `mh${i === active ? ' on' : ''}`, moveAt(a, i).name);
+        tr.appendChild(mh);
 
-      if (picker === a) {
-        const list = el('div', 'mvlist');
-        const active = activeIndex(a);
-        for (const i of filledMoves(a)) {
-          if (i === active) continue;
-          const one = el('button', undefined, moveAt(a, i).name);
-          one.type = 'button';
-          one.addEventListener('click', () => {
+        for (const d of slots[defSide]) {
+          const pair = pairOf(a, d, atkSide, i);
+          const td = el('td');
+          if (pair.typeMul === 0) {
+            td.className = 'k0';
+            td.textContent = 'きかない';
+          } else {
+            const sure = Math.ceil(pair.hp / pair.lo);
+            td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
+            td.append(
+              el('b', undefined, `${sure}はつ`),
+              el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
+            );
+          }
+          if (direction === atkSide && a.radio.checked && d.radio.checked && i === active) {
+            td.classList.add('sel');
+          }
+          // ますを 押すと、その 組み合わせと その わざが 下の けいさんに 出る。
+          td.addEventListener('click', () => {
+            direction = atkSide;
             a.active = i;
-            picker = null;
+            a.radio.checked = true;
+            d.radio.checked = true;
             render();
           });
-          list.appendChild(one);
+          tr.appendChild(td);
         }
-        if (!list.childElementCount) {
-          list.appendChild(el('span', 'none', 'ほかの わざは まだ きめて いない'));
-        }
-        th.appendChild(list);
-      }
-      tr.appendChild(th);
-      for (const d of slots[defSide]) {
-        const pair = pairOf(a, d, atkSide);
-        const td = el('td');
-        if (pair.typeMul === 0) {
-          td.className = 'k0';
-          td.textContent = 'きかない';
-        } else {
-          const sure = Math.ceil(pair.hp / pair.lo);
-          td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
-          td.append(
-            el('b', undefined, `${sure}はつ`),
-            el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
-          );
-        }
-        if (direction === atkSide && a.radio.checked && d.radio.checked) td.classList.add('sel');
-        td.addEventListener('click', () => {
-          direction = atkSide;
-          a.radio.checked = true;
-          d.radio.checked = true;
-          render();
-        });
-        tr.appendChild(td);
-      }
-      table.appendChild(tr);
+        table.appendChild(tr);
+      });
     }
+
     box.replaceChildren(table);
   };
 
@@ -2291,6 +2295,8 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     weather: weather.value,
     crit: crit.checked,
     burn: burn.checked,
+    reflect: reflect.checked,
+    lightScreen: screenLight.checked,
     sides: (['mine', 'theirs'] as const).map((side) => ({
       source: ctl[side].source.value,
       iv: ctl[side].iv.value,
@@ -2326,6 +2332,8 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     weather.value = String(data['weather'] ?? 'none');
     crit.checked = data['crit'] === true;
     burn.checked = data['burn'] === true;
+    reflect.checked = data['reflect'] === true;
+    screenLight.checked = data['lightScreen'] === true;
 
     (['mine', 'theirs'] as const).forEach((side, i) => {
       const saved = sides[i];
