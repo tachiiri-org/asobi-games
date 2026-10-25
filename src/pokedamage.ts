@@ -1300,7 +1300,7 @@ const computedStats = (
   statOther(mon.base[4], level, iv, 0, 1),
 ];
 
-export const mountPokeDamage: GameMount = (host, _ctx) => {
+export const mountPokeDamage: GameMount = (host, ctx) => {
   const style = el('style');
   style.textContent = CSS;
 
@@ -1321,6 +1321,10 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   type SideKey = 'mine' | 'theirs';
 
   const slots: Record<SideKey, Slot[]> = { mine: [], theirs: [] };
+  /** その がわに 1匹 足す。つづきからの 読み込みでも 使う。 */
+  const adders = {} as Record<SideKey, (no: string, level: number, move: string, on: boolean) => Slot | null>;
+  /** その がわの 行の 置き場。まとめて 消すのに 使う。 */
+  const lists = {} as Record<SideKey, HTMLElement>;
   const ctl = {} as Record<SideKey, SideCtl>;
   const detail = {} as Record<SideKey, {
     readonly ownWrap: HTMLElement;
@@ -1550,13 +1554,16 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     addRow.appendChild(add);
     card.appendChild(addRow);
 
-    const push = (no: string, level: number, moveValue: string, checked: boolean): void => {
-      if (slots[side].length >= MAX_SLOTS) return;
+    const push = (no: string, level: number, moveValue: string, checked: boolean): Slot | null => {
+      if (slots[side].length >= MAX_SLOTS) return null;
       const slot = makeSlot(side, no, level, moveValue);
       slot.radio.checked = checked;
       slots[side].push(slot);
       list.appendChild(slot.wrap);
+      return slot;
     };
+    adders[side] = push;
+    lists[side] = list;
     push(firstNo, 50, String(MOVES.findIndex((m) => m.name === 'たいあたり')), true);
     push(secondNo, 50, String(MOVES.findIndex((m) => m.name === 'たいあたり')), false);
     add.addEventListener('click', () => {
@@ -2092,6 +2099,12 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
     renderOut(pair);
     renderMatrix('mine', mineMx, mineMxNote);
     renderMatrix('theirs', theirsMx, theirsMxNote);
+    save();
+  }
+
+  /** 置き場に 書く 予定に 入れる。実際に 出るのは すこし あと（まとめて 出る）。 */
+  function save(): void {
+    if (saving) ctx.save.put(snapshot());
   }
 
   // どれが 変わっても やることは おなじ（計算を やり直す）ので、1つずつ つなぐより
@@ -2111,10 +2124,127 @@ export const mountPokeDamage: GameMount = (host, _ctx) => {
   page.addEventListener('change', onChange);
   page.addEventListener('input', onChange);
 
+  // ── つづきから ────────────────────────────────────────────────
+
+  /**
+   * いまの ぜんぶを 1つの かたまりに する。
+   *
+   * てもちを 組み直すのは 手間が かかる——6匹 × わざ4つ ＋ もちもの ＋ すうじ。
+   * 1回 使って 終わりなら 要らない 仕組みだが、これは 何度も ひらいて 同じ てもちを
+   * 見る どうぐ なので、置いて おける 方が いい。
+   */
+  const snapshot = (): unknown => ({
+    v: 1,
+    direction,
+    weather: weather.value,
+    crit: crit.checked,
+    burn: burn.checked,
+    sides: (['mine', 'theirs'] as const).map((side) => ({
+      source: ctl[side].source.value,
+      iv: ctl[side].iv.value,
+      hpEv: ctl[side].hpEv.value,
+      ev: ctl[side].ev.value,
+      nature: ctl[side].nature.value,
+      rank: ctl[side].rank.value,
+      chosen: slots[side].findIndex((s) => s.radio.checked),
+      slots: slots[side].map((slot) => ({
+        mon: slot.monSel.value,
+        level: slot.levelInput.value,
+        moves: slot.moves,
+        active: slot.active,
+        ownMoves: slot.ownMoves,
+        powers: slot.powers,
+        item: slot.item,
+        own: slot.own,
+        ownTouched: slot.ownTouched,
+        typed: slot.typed,
+        typedTouched: slot.typedTouched,
+      })),
+    })),
+  });
+
+  /** 置いて あった かたまりを 画面に もどす。形が 違えば 何も しない。 */
+  const restore = (raw: string): boolean => {
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    if (data['v'] !== 1 || !Array.isArray(data['sides'])) return false;
+    const sides = data['sides'] as Record<string, unknown>[];
+
+    direction = data['direction'] === 'theirs' ? 'theirs' : 'mine';
+    weather.value = String(data['weather'] ?? 'none');
+    crit.checked = data['crit'] === true;
+    burn.checked = data['burn'] === true;
+
+    (['mine', 'theirs'] as const).forEach((side, i) => {
+      const saved = sides[i];
+      if (!saved) return;
+      const put2 = (node: HTMLSelectElement, key: string): void => {
+        const v = saved[key];
+        if (typeof v === 'string') node.value = v;
+      };
+      put2(ctl[side].source, 'source');
+      put2(ctl[side].iv, 'iv');
+      put2(ctl[side].hpEv, 'hpEv');
+      put2(ctl[side].ev, 'ev');
+      put2(ctl[side].nature, 'nature');
+      put2(ctl[side].rank, 'rank');
+
+      const rows = Array.isArray(saved['slots']) ? saved['slots'] as Record<string, unknown>[] : [];
+      if (!rows.length) return;
+      slots[side] = [];
+      lists[side]?.replaceChildren();
+      const add = adders[side];
+      if (!add) return;
+      rows.slice(0, MAX_SLOTS).forEach((r, index) => {
+        const slot = add(String(r['mon'] ?? '1'), 50, '', index === 0);
+        if (!slot) return;
+        slot.levelInput.value = String(r['level'] ?? '50');
+        if (Array.isArray(r['moves'])) slot.moves = (r['moves'] as string[]).slice(0, 4);
+        if (typeof r['active'] === 'number') slot.active = r['active'];
+        if (Array.isArray(r['ownMoves'])) {
+          slot.ownMoves = r['ownMoves'] as { name: string; type: TypeKey }[];
+        }
+        if (Array.isArray(r['powers'])) slot.powers = r['powers'] as (number | null)[];
+        if (typeof r['item'] === 'string') slot.item = r['item'];
+        if (r['own']) slot.own = r['own'] as Mon;
+        slot.ownTouched = r['ownTouched'] === true;
+        if (Array.isArray(r['typed'])) {
+          slot.typed = r['typed'] as [number, number, number, number, number];
+        }
+        slot.typedTouched = r['typedTouched'] === true;
+      });
+      const chose = saved['chosen'];
+      const mark = slots[side][typeof chose === 'number' && chose >= 0 ? chose : 0];
+      if (mark) mark.radio.checked = true;
+    });
+    return true;
+  };
+
+  let disposed = false;
+  // 読めるまでは 書かない。読めなかったのを「まだ 無い」と 取りちがえると、
+  // つぎの 保存が 置いて あった てもちを 空で 上書きする。
+  let saving = false;
+
   host.replaceChildren(style, page);
   render();
 
+  void (async () => {
+    const res = await ctx.save.load();
+    if (disposed) return;
+    if (!res.ok) {
+      ctx.setStatus('まえの ぶんが よみこめませんでした');
+    } else if (typeof res.state === 'string') {
+      try {
+        if (restore(res.state)) render();
+      } catch {
+        ctx.setStatus('まえの ぶんが こわれて いたので、あたらしく はじめます');
+      }
+    }
+    saving = true;
+    save();
+  })();
+
   return () => {
+    disposed = true;
     page.removeEventListener('change', onChange);
     page.removeEventListener('input', onChange);
     host.replaceChildren();
