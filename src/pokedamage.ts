@@ -998,11 +998,13 @@ const CSS = `
 .pd-mx table{border-collapse:collapse;font-size:.82rem;min-width:100%}
 .pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:7px 8px;text-align:center;white-space:nowrap}
 .pd-mx th{color:#78350f;font-weight:700;background:#fffdf7}
-/* 名前の はしらは 横に ながしても 残す。わざの 行が 多いので、どの子の 行かを 見失う。 */
-.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:5.5rem;
-  vertical-align:top;white-space:normal}
-.pd-mx th.rh .nm{font-weight:700;font-size:.86rem}
-.pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.78rem}
+/* 名前の はしらは 横に ながしても 残す。わざの 行が 多いので、どの子の 行かを 見失う。
+   せめる がわの 2列（名前・わざ）は、ますの すうじより ひとまわり 小さくして おく。
+   見たいのは「何はつ」の ほうで、ここは その 見出し。 */
+.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:4.6rem;
+  padding:5px 6px;vertical-align:top;white-space:normal}
+.pd-mx th.rh .nm{font-weight:700;font-size:.76rem}
+.pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.7rem;padding:5px 6px}
 .pd-mx th.mh.on{color:#b45309;font-weight:700}
 .pd-mx td{cursor:pointer;font-variant-numeric:tabular-nums}
 .pd-mx td b{display:block;font-size:1rem;color:#78350f}
