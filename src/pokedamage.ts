@@ -1017,23 +1017,37 @@ const CSS = `
 .pd-table{width:100%;border-collapse:collapse;font-size:.74rem;margin-top:8px}
 .pd-table th,.pd-table td{border-bottom:1px solid #e5e7eb;padding:3px 4px;text-align:left;color:#374151}
 .pd-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+/* 横に ながさずに 読めるように する。はばを 列の 数で わけて、あいてが 多い ときは
+   字を 小さくして 入れる。入らない ぶんだけ ここが 横に うごく（ふだんは うごかない）。 */
 .pd-mx{overflow-x:auto}
-.pd-mx table{border-collapse:collapse;font-size:.82rem;min-width:100%}
-.pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:3px 8px;text-align:center;white-space:nowrap;
-  line-height:1.25}
+.pd-mx table{table-layout:fixed;width:100%;border-collapse:collapse;font-size:.82rem}
+.pd-mx th,.pd-mx td{border:1px solid #e5e7eb;padding:3px 4px;text-align:center;
+  line-height:1.25;overflow-wrap:anywhere}
 .pd-mx th{color:#78350f;font-weight:700;background:#fffdf7}
 /* 名前の はしらは 横に ながしても 残す。わざの 行が 多いので、どの子の 行かを 見失う。
    せめる がわの 2列（名前・わざ）は、ますの すうじより ひとまわり 小さくして おく。
    見たいのは「何はつ」の ほうで、ここは その 見出し。 */
-.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:4.6rem;
-  padding:3px 6px;vertical-align:top;white-space:normal}
+.pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;width:4.4rem;
+  padding:3px 5px;vertical-align:top}
 .pd-mx th.rh .nm{font-weight:700;font-size:.76rem}
 .pd-mx th .lv{display:block;font-weight:400;color:#9ca3af;font-size:.64rem;line-height:1.2}
-.pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.7rem;padding:3px 6px}
+.pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.7rem;padding:3px 5px;
+  width:5rem}
 .pd-mx th.mh.on{color:#b45309;font-weight:700}
 .pd-mx td{cursor:pointer;font-variant-numeric:tabular-nums}
 .pd-mx td b{display:block;font-size:1rem;color:#78350f;line-height:1.15}
 .pd-mx td small{display:block;color:#6b7280;font-size:.72rem;line-height:1.1}
+.pd-mx table.c3 td b,.pd-mx table.c4 td b{font-size:.86rem}
+.pd-mx table.c3 td small,.pd-mx table.c4 td small{font-size:.66rem}
+.pd-mx table.c3 th.rh,.pd-mx table.c4 th.rh{width:3.8rem}
+.pd-mx table.c3 th.mh,.pd-mx table.c4 th.mh{width:4.2rem;font-size:.66rem}
+.pd-mx table.c5 td b,.pd-mx table.c6 td b{font-size:.74rem}
+.pd-mx table.c5 td small,.pd-mx table.c6 td small{font-size:.6rem}
+.pd-mx table.c5 th,.pd-mx table.c6 th,.pd-mx table.c5 td,.pd-mx table.c6 td{padding:3px 2px}
+.pd-mx table.c5 th.rh,.pd-mx table.c6 th.rh{width:3.4rem}
+.pd-mx table.c5 th.rh .nm,.pd-mx table.c6 th.rh .nm{font-size:.66rem}
+.pd-mx table.c5 th.mh,.pd-mx table.c6 th.mh{width:3.6rem;font-size:.6rem}
+.pd-mx table.c5 th,.pd-mx table.c6 th{font-size:.66rem}
 .pd-mx td.k1{background:#fecaca}
 .pd-mx td.k2{background:#fed7aa}
 .pd-mx td.k3{background:#fef9c3}
@@ -2238,14 +2252,19 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const defSide = other(atkSide);
     if (note) {
       note.textContent = atkSide === 'mine'
-        ? 'たてが じぶん、よこが あいて。ますの すうじは、かくじつに たおせる はっすう。'
-        : 'たてが あいて、よこが じぶん。ますの すうじは、かくじつに たおされる はっすう。';
+        ? 'たてが じぶん、よこが あいて。ますの 大きい すうじは、かくじつに たおせる はっすう。'
+        : 'たてが あいて、よこが じぶん。ますの 大きい すうじは、かくじつに たおされる はっすう。';
     }
 
     /** 見出しに そえる レベル。そろえて 見る 表では、1匹ずつ 書いても 同じなので ださない。 */
     const lv = (slot: Slot): string => (at === undefined ? `Lv${levelOf(slot)}` : '');
 
-    const table = el('table');
+    // あいてが 何匹かで、字の 大きさを 変える。2匹までは そのまま、多い ほど 詰める。
+    // 5匹から 先は「はつ」を 落として すうじ だけに する——ますが せまくて「2は／つ」と
+    // 折り返して しまう。何の すうじかは 表の 上に 書いて ある。
+    const cols = slots[defSide].length;
+    const tight = cols >= 5;
+    const table = el('table', `c${cols}`);
     const head = el('tr');
     head.append(el('th', 'rh', ''), el('th', 'mh', 'わざ'));
     for (const d of slots[defSide]) {
@@ -2289,14 +2308,12 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
               // 「きかない」（ダメージ 0）と まぎれない ように、言い方を 分ける。
               // こちらは ダメージは 出て いるが、なおる ぶんに 追いつかれる 方。
               td.className = 'k0';
-              td.append(
-                el('b', undefined, 'たおせない'),
-                el('small', undefined, 'なおる ほうが おおい'),
-              );
+              td.appendChild(el('b', undefined, 'たおせない'));
+              if (!tight) td.appendChild(el('small', undefined, 'なおる ほうが おおい'));
             } else {
               td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
               td.append(
-                el('b', undefined, `${sure}はつ`),
+                el('b', undefined, tight ? String(sure) : `${sure}はつ`),
                 el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
               );
             }
