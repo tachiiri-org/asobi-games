@@ -1005,6 +1005,7 @@ const CSS = `
 .pd-mx th.rh{text-align:left;position:sticky;left:0;z-index:2;min-width:4.6rem;
   padding:3px 6px;vertical-align:top;white-space:normal}
 .pd-mx th.rh .nm{font-weight:700;font-size:.76rem}
+.pd-mx th .lv{display:block;font-weight:400;color:#9ca3af;font-size:.64rem;line-height:1.2}
 .pd-mx th.mh{text-align:left;font-weight:400;color:#6b7280;font-size:.7rem;padding:3px 6px}
 .pd-mx th.mh.on{color:#b45309;font-weight:700}
 .pd-mx td{cursor:pointer;font-variant-numeric:tabular-nums}
@@ -1476,33 +1477,41 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     return e?.stat?.includes(want) ? e.mul ?? 1 : 1;
   };
 
-  const offenceOf = (slot: Slot, side: SideKey, physical: boolean): number => {
+  /**
+   * at を わたすと、その レベルで 出し直す。
+   *
+   * 「ゲームの すうじを 書く」に して いる がわでも、at が あれば しゅぞくちから 出す。
+   * 書いた すうじは その レベルの もの なので、べつの レベルに 持って いけない。
+   */
+  const levelFor = (slot: Slot, at?: number): number => at ?? levelOf(slot);
+
+  const offenceOf = (slot: Slot, side: SideKey, physical: boolean, at?: number): number => {
     const want: StatSlot = physical ? 'atk' : 'spa';
-    const raw = isTyped(side)
+    const raw = at === undefined && isTyped(side)
       ? slot.typed[physical ? 1 : 3]
       : statOther(
-        monOf(slot).base[physical ? 1 : 3], levelOf(slot),
+        monOf(slot).base[physical ? 1 : 3], levelFor(slot, at),
         Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
       );
     return Math.floor(raw * itemStatMul(slot, want) * abilityStatMul(slot, want));
   };
 
-  const defenceOf = (slot: Slot, side: SideKey, physical: boolean): number => {
+  const defenceOf = (slot: Slot, side: SideKey, physical: boolean, at?: number): number => {
     const want: StatSlot = physical ? 'def' : 'spd';
-    const raw = isTyped(side)
+    const raw = at === undefined && isTyped(side)
       ? slot.typed[physical ? 2 : 4]
       : statOther(
-        monOf(slot).base[physical ? 2 : 4], levelOf(slot),
+        monOf(slot).base[physical ? 2 : 4], levelFor(slot, at),
         Number(ctl[side].iv.value), Number(ctl[side].ev.value), Number(ctl[side].nature.value),
       );
     return Math.floor(raw * itemStatMul(slot, want));
   };
 
-  const hpOf = (slot: Slot, side: SideKey): number => {
-    if (isTyped(side)) return slot.typed[0];
+  const hpOf = (slot: Slot, side: SideKey, at?: number): number => {
+    if (at === undefined && isTyped(side)) return slot.typed[0];
     const mon = monOf(slot);
     return statHp(
-      mon.base[0], levelOf(slot),
+      mon.base[0], levelFor(slot, at),
       Number(ctl[side].iv.value), Number(ctl[side].hpEv.value),
     );
   };
@@ -1548,19 +1557,21 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
   const screenLight = el('input');
   screenLight.type = 'checkbox';
 
-  const pairOf = (atkSlot: Slot, defSlot: Slot, atkSide: SideKey, moveIndex?: number): Pair => {
+  const pairOf = (
+    atkSlot: Slot, defSlot: Slot, atkSide: SideKey, moveIndex?: number, at?: number,
+  ): Pair => {
     const defSide = other(atkSide);
     const mv = moveIndex === undefined ? moveOf(atkSlot) : moveAt(atkSlot, moveIndex);
     const physical = isPhysical(mv.type);
     const atkMon = monOf(atkSlot);
     const defMon = monOf(defSlot);
 
-    const atkStat = offenceOf(atkSlot, atkSide, physical);
-    const defStat = defenceOf(defSlot, defSide, physical);
+    const atkStat = offenceOf(atkSlot, atkSide, physical, at);
+    const defStat = defenceOf(defSlot, defSide, physical, at);
     // ランクは 実数に かけてから きりすてる。
     const atkUsed = Math.max(1, Math.floor(atkStat * rankMul(Number(ctl[atkSide].rank.value))));
     const defUsed = Math.max(1, Math.floor(defStat * rankMul(Number(ctl[defSide].rank.value))));
-    const hp = hpOf(defSlot, defSide);
+    const hp = hpOf(defSlot, defSide, at);
 
     const stab = atkMon.types.includes(mv.type);
     const baseSteps = typeSteps(mv.type, defMon.types);
@@ -1595,7 +1606,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const itemMul = held?.boostType === mv.type && itemWorks(held, atkMon) ? 1.1 : 1;
 
     const rolls = damages({
-      level: levelOf(atkSlot), power, atk: atkUsed, def: defUsed,
+      level: levelFor(atkSlot, at), power, atk: atkUsed, def: defUsed,
       stab, typeSteps: steps, crit: crit.checked, item: itemMul,
       weather: weatherMul, burn: burned, screen: screened,
     });
@@ -1969,6 +1980,26 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     el('h3', undefined, '🛡️ あいての こうげき'), theirsMxNote, theirsMx,
   );
 
+  /**
+   * レベル100 に そろえた ときの 表。
+   *
+   * いまの レベルの 表（上）は、ぼうけんの 途中で「この わざで 何発か」を 見る もの。
+   * こちらは「そだてきったら どうなるか」を 見る もの。どちらも 同じ てもち・同じ わざで、
+   * ちがうのは レベルだけ。
+   */
+  const topCard = el('div', 'pd-card');
+  topCard.appendChild(el('h2', undefined, '💯 レベル100 で そろえたら'));
+  topCard.appendChild(el('p', 'pd-note',
+    'ふたりとも レベル100 に したら どうなるか。もちもの・とくせい・どりょく・せいかくは'
+    + ' そのまま。「ゲームの すうじを 書く」に して いる がわも、ここだけは しゅぞくちから'
+    + ' 出す——書いた すうじは その レベルの ものなので、べつの レベルには 持って いけない。'));
+  const topMineMx = el('div', 'pd-mx');
+  const topTheirsMx = el('div', 'pd-mx');
+  topCard.append(
+    el('h3', undefined, '⚔️ じぶんの こうげき'), topMineMx,
+    el('h3', undefined, '🛡️ あいての こうげき'), topTheirsMx,
+  );
+
   const noteCard = el('div', 'pd-card');
   noteCard.appendChild(el('h2', undefined, '📖 つかっている しき'));
   noteCard.appendChild(el('p', 'pd-note',
@@ -1993,7 +2024,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     + ' しんりょく・もうか・げきりゅう・むしのしらせ は 残りHP、こんじょう は じょうたいで'
     + ' 変わる ので、この どうぐでは 見て いない。'));
 
-  app.append(parties, optCard, outCard, mxCard, noteCard);
+  app.append(parties, optCard, outCard, mxCard, topCard, noteCard);
 
   // ── 出す ──────────────────────────────────────────────────────
 
@@ -2162,16 +2193,29 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
    * ここに 3 と 出て いれば、運が わるくても 3発で 終わる。下の % は いちばん 大きい
    * ダメージの ぶん。ますを 押すと、その 組み合わせが 上の けいさんに 出る。
    */
-  const renderMatrix = (atkSide: SideKey, box: HTMLElement, note: HTMLElement): void => {
+  const renderMatrix = (
+    atkSide: SideKey, box: HTMLElement, note: HTMLElement | null, at?: number,
+  ): void => {
     const defSide = other(atkSide);
-    note.textContent = atkSide === 'mine'
-      ? 'たてが じぶん、よこが あいて。ますの すうじは、かくじつに たおせる はっすう。'
-      : 'たてが あいて、よこが じぶん。ますの すうじは、かくじつに たおされる はっすう。';
+    if (note) {
+      note.textContent = atkSide === 'mine'
+        ? 'たてが じぶん、よこが あいて。ますの すうじは、かくじつに たおせる はっすう。'
+        : 'たてが あいて、よこが じぶん。ますの すうじは、かくじつに たおされる はっすう。';
+    }
+
+    /** 見出しに そえる レベル。そろえて 見る 表では、1匹ずつ 書いても 同じなので ださない。 */
+    const lv = (slot: Slot): string => (at === undefined ? `Lv${levelOf(slot)}` : '');
 
     const table = el('table');
     const head = el('tr');
     head.append(el('th', 'rh', ''), el('th', 'mh', 'わざ'));
-    for (const d of slots[defSide]) head.appendChild(el('th', undefined, monOf(d).name));
+    for (const d of slots[defSide]) {
+      const th = el('th');
+      th.appendChild(el('div', undefined, monOf(d).name));
+      const tag = lv(d);
+      if (tag) th.appendChild(el('small', 'lv', tag));
+      head.appendChild(th);
+    }
     table.appendChild(head);
 
     for (const a of slots[atkSide]) {
@@ -2187,13 +2231,15 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
           const th = el('th', 'rh');
           th.rowSpan = indexes.length;
           th.appendChild(el('div', 'nm', monOf(a).name));
+          const tag = lv(a);
+          if (tag) th.appendChild(el('small', 'lv', tag));
           tr.appendChild(th);
         }
         const mh = el('th', `mh${i === active ? ' on' : ''}`, moveAt(a, i).name);
         tr.appendChild(mh);
 
         for (const d of slots[defSide]) {
-          const pair = pairOf(a, d, atkSide, i);
+          const pair = pairOf(a, d, atkSide, i, at);
           const td = el('td');
           if (pair.typeMul === 0) {
             td.className = 'k0';
@@ -2248,6 +2294,8 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     renderOut(pair);
     renderMatrix('mine', mineMx, mineMxNote);
     renderMatrix('theirs', theirsMx, theirsMxNote);
+    renderMatrix('mine', topMineMx, null, 100);
+    renderMatrix('theirs', topTheirsMx, null, 100);
     save();
   }
 
