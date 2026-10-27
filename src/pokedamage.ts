@@ -700,6 +700,14 @@ type Item = {
   readonly mul?: number;
   /** その ポケモンの ときだけ きく（図鑑番号）。書いて なければ だれでも。 */
   readonly only?: readonly number[];
+  /**
+   * まいターン、さいだいHP の 何ぶんの1 なおるか。
+   *
+   * ダメージ そのものは 変えないが、「何発で たおせるか」は 変わる——1発ごとに
+   * なおる ぶんを 取りかえされる。そこを 見ない と、たべのこしを 持った 相手に
+   * 足りない 数を 出して しまう。
+   */
+  readonly healDiv?: number;
 };
 
 /**
@@ -738,6 +746,7 @@ const ITEMS: readonly Item[] = [
   { name: 'しんかいのウロコ', stat: ['spd'], mul: 2, only: [366] },
   { name: 'メタルパウダー', stat: ['def'], mul: 2, only: [132] },
   { name: 'こころのしずく', stat: ['spa', 'spd'], mul: 1.5, only: [380, 381] },
+  { name: 'たべのこし', healDiv: 16 },
 ];
 
 /**
@@ -816,6 +825,20 @@ const abilityWord = (name: string): string => {
   if (e.noWeather) return 'てんきの ぶんが きえる';
   if (e.stat) return `${e.stat.map((k) => STAT_NAME[k]).join('と')} が ${e.mul ?? 1}倍に なる`;
   return '';
+};
+
+/**
+ * 何発で たおせるか。あいだに なおる ぶんを はさむ。
+ *
+ * 1発ごとに heal ぶん もどるので、n発 うったあとの のこりは hp − n×dmg ＋ (n−1)×heal。
+ * これが 0 いかに なる いちばん 小さい n。1発ぶんが なおる ぶんに 足りなければ、
+ * 何発 うっても たおれない——その ときは null。
+ */
+const hitsToKo = (hp: number, dmg: number, heal: number): number | null => {
+  if (dmg <= 0) return null;
+  if (heal <= 0) return Math.ceil(hp / dmg);
+  if (dmg <= heal) return null;
+  return Math.ceil((hp - heal) / (dmg - heal));
 };
 
 /** その もちものが、その ポケモンに きくか。 */
@@ -1166,18 +1189,23 @@ const fillItems = (node: HTMLSelectElement, value: string): void => {
   byType.label = 'タイプを つよくする（× 1.1）';
   const byStat = el('optgroup');
   byStat.label = 'のうりょくに かかる';
+  const byHeal = el('optgroup');
+  byHeal.label = 'まいターン なおる';
   ITEMS.forEach((it, i) => {
     const opt = el('option');
     opt.value = String(i);
     if (it.boostType) {
       opt.textContent = `${it.name}（${TYPE_NAME[it.boostType]}）`;
       byType.appendChild(opt);
+    } else if (it.healDiv) {
+      opt.textContent = `${it.name}（${it.healDiv}ぶんの1 なおる）`;
+      byHeal.appendChild(opt);
     } else {
       opt.textContent = `${it.name}（× ${it.mul ?? 1}）`;
       byStat.appendChild(opt);
     }
   });
-  node.replaceChildren(none, byType, byStat);
+  node.replaceChildren(none, byType, byStat, byHeal);
   node.value = value;
 };
 
@@ -1341,6 +1369,7 @@ const itemWord = (item: Item | null, mon: Mon): string => {
     const who = (item.only ?? []).map((n) => MON_BY_NO.get(String(n))?.name ?? '?').join('・');
     return `${item.name} は ${who} の ときだけ きく。いまは きいて いない。`;
   }
+  if (item.healDiv) return `まいターン、さいだいHP の ${item.healDiv}ぶんの1 なおる。`;
   if (item.boostType) return `${TYPE_NAME[item.boostType]} の わざが 1.1倍に なる。`;
   const where = (item.stat ?? []).map((k) => STAT_NAME[k]).join('と');
   return `${where} が ${item.mul ?? 1}倍に なる。`;
@@ -1537,6 +1566,8 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     readonly crit: boolean;
     readonly item: number;
     readonly screen: boolean;
+    /** 受ける がわが まいターン なおす ぶん（たべのこし）。0 なら なおさない。 */
+    readonly heal: number;
     /** きかない ときに、止めて いる とくせいの なまえ。タイプの せい なら null。 */
     readonly blockedBy: string | null;
     readonly defAbility: string;
@@ -1604,6 +1635,9 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const power = powerFor(mv, defMon);
     const held = itemOf(atkSlot);
     const itemMul = held?.boostType === mv.type && itemWorks(held, atkMon) ? 1.1 : 1;
+    // たべのこしは 1 より 下には ならない（さいだいHP が 16 に とどかない 子でも 1）。
+    const defHeal = itemOf(defSlot)?.healDiv;
+    const heal = defHeal ? Math.max(1, Math.floor(hp / defHeal)) : 0;
 
     const rolls = damages({
       level: levelFor(atkSlot, at), power, atk: atkUsed, def: defUsed,
@@ -1614,7 +1648,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
       mv, power, physical, atkMon, defMon, atkStat, defStat, atkUsed, defUsed, hp, stab, typeMul,
       blockedBy, defAbility,
       lo: rolls[0] ?? 0, hi: rolls[rolls.length - 1] ?? 0,
-      weather: weatherMul, burn: burned, crit: crit.checked, item: itemMul, screen: screened,
+      weather: weatherMul, burn: burned, crit: crit.checked, item: itemMul, screen: screened, heal,
     };
   };
 
@@ -2147,11 +2181,16 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
 
     // 「かくじつ」は いちばん 小さい ダメージでも たおせる 回数、「うまくいけば」は
     // いちばん 大きい ダメージが そろった ときの 回数。
-    const sure = Math.ceil(pair.hp / pair.lo);
-    const lucky = Math.ceil(pair.hp / pair.hi);
-    ko.textContent = sure === lucky
-      ? `かくじつに ${sure}はつで たおせる`
-      : `うまくいけば ${lucky}はつ、かくじつには ${sure}はつで たおせる`;
+    const sure = hitsToKo(pair.hp, pair.lo, pair.heal);
+    const lucky = hitsToKo(pair.hp, pair.hi, pair.heal);
+    const healNote = pair.heal ? `（たべのこしで まいターン ${pair.heal} なおる）` : '';
+    ko.textContent = lucky === null
+      ? `なおる ぶんの ほうが 多くて、この わざでは たおせない${healNote}`
+      : sure === null
+        ? `うまくいけば ${lucky}はつ。わるいと なおる ぶんに 追いつかれる${healNote}`
+        : sure === lucky
+          ? `かくじつに ${sure}はつで たおせる${healNote}`
+          : `うまくいけば ${lucky}はつ、かくじつには ${sure}はつで たおせる${healNote}`;
 
     const head = el('tr');
     head.append(el('th', undefined, 'つかった すうじ'), el('th', undefined, 'あたい'));
@@ -2245,12 +2284,20 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
             td.className = 'k0';
             td.textContent = 'きかない';
           } else {
-            const sure = Math.ceil(pair.hp / pair.lo);
-            td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
-            td.append(
-              el('b', undefined, `${sure}はつ`),
-              el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
-            );
+            const sure = hitsToKo(pair.hp, pair.lo, pair.heal);
+            if (sure === null) {
+              td.className = 'k0';
+              td.append(
+                el('b', undefined, 'とどかない'),
+                el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
+              );
+            } else {
+              td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
+              td.append(
+                el('b', undefined, `${sure}はつ`),
+                el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
+              );
+            }
           }
           if (direction === atkSide && a.radio.checked && d.radio.checked && i === active) {
             td.classList.add('sel');
