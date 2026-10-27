@@ -2185,7 +2185,7 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const lucky = hitsToKo(pair.hp, pair.hi, pair.heal);
     const healNote = pair.heal ? `（たべのこしで まいターン ${pair.heal} なおる）` : '';
     ko.textContent = lucky === null
-      ? `なおる ぶんの ほうが 多くて、この わざでは たおせない${healNote}`
+      ? `たおせない。1発の ダメージより、なおる ぶんの ほうが 多い${healNote}`
       : sure === null
         ? `うまくいけば ${lucky}はつ。わるいと なおる ぶんに 追いつかれる${healNote}`
         : sure === lucky
@@ -2286,10 +2286,12 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
           } else {
             const sure = hitsToKo(pair.hp, pair.lo, pair.heal);
             if (sure === null) {
+              // 「きかない」（ダメージ 0）と まぎれない ように、言い方を 分ける。
+              // こちらは ダメージは 出て いるが、なおる ぶんに 追いつかれる 方。
               td.className = 'k0';
               td.append(
-                el('b', undefined, 'とどかない'),
-                el('small', undefined, `${((pair.hi / pair.hp) * 100).toFixed(0)}%`),
+                el('b', undefined, 'たおせない'),
+                el('small', undefined, 'なおる ほうが おおい'),
               );
             } else {
               td.className = sure <= 1 ? 'k1' : sure === 2 ? 'k2' : sure <= 3 ? 'k3' : '';
