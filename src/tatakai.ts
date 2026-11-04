@@ -21,6 +21,13 @@
 //    まとめて当てたほうが点が伸びる——避けてばかりでも進めるが、攻めると伸びる形。
 //  - 倒した敵の点を二重に数えないようにした。倒れた敵は吹っ飛ぶ間だけ画面に残るので、
 //    そこへもう一度攻撃が当たると、同じ敵の点が2回入っていた。
+//  - コインと おうちを 足した。敵を倒すとコインが落ち、ステージの合間に自分のおうちへ
+//    戻って、ぶきを買い替えたり、やくそうをバッグに詰めたりする。倒す以外にやることが
+//    無いと、強くなる道がレベルだけになる——どう使うかを自分で決められる持ちものを
+//    置いて、遊ぶ人の側に選ぶところを作る。
+//  - コインも ぶきも バッグも、1回の遊びの中だけ持つ。置き場（ctx.save）は使わない
+//    ので、やり直すと最初のぼうに戻る。持ち越すなら保存が要り、ログインが要るゲームに
+//    なってしまう——このゲームは誰でも遊べるままにしておく。
 
 import type { GameMount } from './types';
 
@@ -46,7 +53,45 @@ const stageScoreMul = (stage: number): number => stage;
 /** 連続で当てている間、コンボが続く長さ（フレーム）。 */
 const COMBO_KEEP = 110;
 
-type SoundType = 'hit' | 'swing' | 'damage' | 'jump' | 'levelup' | 'boss_spawn' | 'crash';
+/** バッグに入る やくそうの 数。 */
+const BAG_MAX = 5;
+/** やくそう1つの ねだんと、もどる体力。 */
+const HERB_PRICE = 15;
+const HERB_HEAL = 45;
+/**
+ * はじめに持っているコイン。
+ *
+ * やくそう1つぶん渡してある。0で始めると、最初のおうちで何もできず、
+ * 「おうちがある」ことが出かけるまで分からない。
+ */
+const START_COINS = 20;
+
+type Weapon = {
+  readonly name: string;
+  readonly price: number;
+  /** こうげき力への たしざん。 */
+  readonly power: number;
+  /** 届く長さ。 */
+  readonly range: number;
+  readonly blade: string;
+  readonly grip: string;
+  readonly note: string;
+};
+
+/**
+ * ぶき。
+ *
+ * 強さと一緒に届く長さも伸ばしてある。数字だけ上げると、買っても手ごたえが
+ * 変わらない——間合いが変わると、同じ敵でも戦い方が変わる。
+ */
+const WEAPONS: readonly Weapon[] = [
+  { name: 'きのぼう', price: 0, power: 0, range: 100, blade: '#b45309', grip: '#78350f', note: 'さいしょの ぼう' },
+  { name: 'てつのけん', price: 30, power: 14, range: 116, blade: '#e5e7eb', grip: '#6b7280', note: 'ふつうに つよい' },
+  { name: 'ほのおのけん', price: 80, power: 32, range: 132, blade: '#fb923c', grip: '#7c2d12', note: 'もえる やいば' },
+  { name: 'でんせつのけん', price: 190, power: 58, range: 152, blade: '#67e8f9', grip: '#0e7490', note: 'いちばん とおくまで とどく' },
+];
+
+type SoundType = 'hit' | 'swing' | 'damage' | 'jump' | 'levelup' | 'boss_spawn' | 'crash' | 'coin' | 'heal' | 'buy';
 type EnemyType = 'slime' | 'skeleton' | 'bat' | 'golem' | 'ghost' | 'boss';
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -120,6 +165,36 @@ const CSS = `
 .tk-pad.attack:active{background:#f87171}
 .tk-pad .cap{font-size:10px;font-weight:700}
 .tk-hidden{display:none}
+.tk-home-lead{color:#fcd34d;font-weight:700;margin:0 0 12px}
+.tk-shop{background:rgba(17,24,39,.92);border:2px solid #374151;border-radius:.6rem;
+  padding:12px;max-width:26rem;margin:0 auto 16px;text-align:left}
+.tk-shop-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;
+  color:#d1d5db;border-bottom:1px solid #374151;padding-bottom:8px;margin-bottom:10px}
+.tk-shop-head b{color:#facc15;font-size:15px;font-family:ui-monospace,monospace}
+.tk-shop-sec{margin-bottom:12px}
+.tk-shop-sec:last-child{margin-bottom:0}
+.tk-shop-sec h3{font-size:13px;color:#93c5fd;margin:0 0 4px;font-weight:700}
+.tk-item-row{display:flex;align-items:center;gap:8px;justify-content:space-between;
+  padding:6px 0;border-top:1px solid #1f2937}
+.tk-item-name{font-size:13px;font-weight:700;color:#f3f4f6;min-width:0}
+.tk-item-name .note{display:block;font-size:10px;font-weight:400;color:#9ca3af}
+.tk-buy{background:#16a34a;color:#fff;border:0;border-bottom:3px solid #15803d;border-radius:.4rem;
+  padding:6px 10px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap}
+.tk-buy:active:not(:disabled){transform:translateY(1px);border-bottom-width:2px}
+.tk-buy:disabled{background:#4b5563;border-bottom-color:#374151;opacity:.7;cursor:default}
+.tk-buy.equip{background:#2563eb;border-bottom-color:#1d4ed8}
+.tk-buy.on{background:#1f2937;border-bottom-color:#111827;color:#facc15;opacity:1}
+.tk-pad.item{background:#166534;border-bottom-color:#14532d}
+.tk-pad.item:active{background:#22c55e}
+.tk-head .k.c{color:#fbbf24}
+.tk-home h2{font-size:22px;margin:0 0 6px}
+.tk-home .tk-home-lead{font-size:12px;margin:0 0 8px}
+.tk-home .tk-shop{padding:9px 11px;margin-bottom:11px}
+.tk-home .tk-shop-head{padding-bottom:6px;margin-bottom:7px}
+.tk-home .tk-shop-sec{margin-bottom:8px}
+.tk-home .tk-item-row{padding:4px 0}
+.tk-home .tk-item-name{font-size:12px}
+.tk-home .tk-go{padding:9px 28px;font-size:16px}
 `;
 
 export const mountTatakai: GameMount = (host, ctx) => {
@@ -135,6 +210,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       <div><span class="k s">👑 スコア:</span> <span class="v" data-score>0</span></div>
       <div><span class="k l">⬆ Lv:</span> <span class="v" data-level>1</span></div>
       <div><span class="k st">ステージ:</span> <span class="v" data-stage>1</span></div>
+      <div><span class="k c">🪙</span> <span class="v" data-purse>0</span></div>
     </div>
     <div class="tk-combo tk-hidden" data-combo><span class="n">0</span> れんぞく！</div>
     <div class="tk-warn tk-hidden" data-boss>⚠️ ボス出現中！ ⚠️</div>
@@ -156,6 +232,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
           <p><kbd>←</kbd> <kbd>→</kbd> または画面ボタン：移動</p>
           <p><kbd>スペース</kbd> または <kbd>X</kbd>：<span style="color:#f87171;font-weight:700">超・連続攻撃！</span></p>
           <p><kbd>↑</kbd> または <kbd>Z</kbd>：ジャンプ</p>
+          <p><kbd>C</kbd> または 🌿ボタン：やくそうを つかう</p>
+          <p style="color:#4ade80">敵が おとす 🪙 を ひろって、おうちで ぶきや やくそうを かおう</p>
           <p style="color:#f87171;font-weight:700;font-size:10px">※動かない時は、まず画面を1回クリックしてね！</p>
         </div>
         <button class="tk-go red" data-start>ゲーム開始</button>
@@ -166,7 +244,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
         <div class="tk-panel over">
           <p class="k">最終スコア</p>
           <p class="v" data-final-score>0</p>
-          <p class="sub">到達レベル: <span style="color:#60a5fa" data-final-level>1</span></p>
+          <p class="sub">到達レベル: <span style="color:#60a5fa" data-final-level>1</span><br>
+            のこったコイン: <span style="color:#facc15" data-final-purse>0</span>　ぶき: <span style="color:#facc15" data-final-weapon>きのぼう</span></p>
         </div>
         <br>
         <button class="tk-go blue" data-restart>もう一度挑戦</button>
@@ -187,10 +266,32 @@ export const mountTatakai: GameMount = (host, ctx) => {
         <div class="tk-panel win">
           <p class="k">ここまでのスコア</p>
           <p class="v" data-stage-score>0</p>
-          <p class="sub">体力はぜんぶ回復した</p>
+          <p class="sub">おうちで ぶきを 買って、体力を ぜんぶ もどしてから 出かけよう</p>
         </div>
         <br>
-        <button class="tk-go yellow" data-next-stage>つぎのステージへ</button>
+        <button class="tk-go yellow" data-next-stage>おうちへ もどる</button>
+      </div>
+      <div class="tk-hidden tk-home" data-menu="home">
+        <h2 class="win">🏠 じぶんの おうち</h2>
+        <p class="tk-home-lead" data-home-lead></p>
+        <div class="tk-shop">
+          <div class="tk-shop-head">
+            <span>さいふ <b data-home-purse>0</b> コイン</span>
+            <span>バッグ やくそう <b data-home-bag>0</b> / 5</span>
+          </div>
+          <div class="tk-shop-sec">
+            <h3>ぶきや</h3>
+            <div data-weapon-list></div>
+          </div>
+          <div class="tk-shop-sec">
+            <h3>どうぐや</h3>
+            <div class="tk-item-row" style="border-top:0">
+              <div class="tk-item-name">やくそう<span class="note">たたかいの とちゅうに つかうと 体力が もどる</span></div>
+              <button class="tk-buy" data-buy-herb>かう</button>
+            </div>
+          </div>
+        </div>
+        <button class="tk-go yellow" data-depart>でかける</button>
       </div>
       <div class="tk-hidden" data-menu="pause">
         <h2 class="pause">PAUSE</h2>
@@ -207,6 +308,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         <button class="tk-pad" data-ctrl="right">→</button>
       </div>
       <div class="grp">
+        <button class="tk-pad item" data-ctrl="item">🌿<span class="cap" data-bagn>0</span></button>
         <button class="tk-pad jump" data-ctrl="jump">↑<span class="cap">JUMP</span></button>
         <button class="tk-pad attack" data-ctrl="attack">✊<span class="cap">ATTACK</span></button>
       </div>
@@ -230,6 +332,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
   const levelEl = q('[data-level]');
   const stageEl = q('[data-stage]');
   const comboEl = q('[data-combo]');
+  const purseEl = q('[data-purse]');
+  const bagEl = q('[data-bagn]');
   const bossWarn = q('[data-boss]');
   const overlay = q('[data-overlay]');
   const flash = q('[data-flash]');
@@ -238,6 +342,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     gameover: q('[data-menu="gameover"]'),
     clear: q('[data-menu="clear"]'),
     stageclear: q('[data-menu="stageclear"]'),
+    home: q('[data-menu="home"]'),
     pause: q('[data-menu="pause"]'),
   };
 
@@ -271,6 +376,24 @@ export const mountTatakai: GameMount = (host, ctx) => {
         g.connect(audio.destination);
         o.start(t);
         o.stop(t + 0.22);
+      }
+      return;
+    }
+
+    if (type === 'coin' || type === 'heal' || type === 'buy') {
+      const pair = type === 'coin' ? [880, 1318.51] : type === 'heal' ? [523.25, 783.99] : [659.25, 987.77];
+      for (const [index, freq] of pair.entries()) {
+        const t = now + index * 0.07;
+        const o = audio.createOscillator();
+        const g = audio.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(freq, t);
+        g.gain.setValueAtTime(0.18, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + 0.16);
+        o.connect(g);
+        g.connect(audio.destination);
+        o.start(t);
+        o.stop(t + 0.18);
       }
       return;
     }
@@ -326,7 +449,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
   };
 
   // ── 状態
-  let gameState: 'START' | 'PLAYING' | 'GAMEOVER' | 'CLEAR' | 'STAGECLEAR' | 'PAUSED' = 'START';
+  let gameState: 'START' | 'PLAYING' | 'GAMEOVER' | 'CLEAR' | 'STAGECLEAR' | 'HOME' | 'PAUSED' = 'START';
   let score = 0;
   let level = 1;
   let stage = 1;
@@ -335,6 +458,16 @@ export const mountTatakai: GameMount = (host, ctx) => {
   /** 続けて当てた数。途切れると0へ戻る。 */
   let combo = 0;
   let comboTimer = 0;
+  /** 持っているコイン。 */
+  let purse = START_COINS;
+  /** バッグに入っている やくそうの数。 */
+  let bag = 0;
+  /** 買ったぶき。WEAPONS と同じ並び。 */
+  let owned: boolean[] = WEAPONS.map((_, i) => i === 0);
+  /** いま持っているぶき。 */
+  let weaponIndex = 0;
+  /** もう出かけたか。おうちの「でかける」が、1本めの出発か次のステージかを分ける。 */
+  let departed = false;
   let exp = 0;
   let nextLevelExp = 100;
   let bossSpawned = false;
@@ -347,7 +480,10 @@ export const mountTatakai: GameMount = (host, ctx) => {
   const timers = new Set<ReturnType<typeof setTimeout>>();
 
   const keys: Record<string, boolean> = {};
-  const touchInputs = { left: false, right: false, jump: false, attack: false };
+  const touchInputs = { left: false, right: false, jump: false, attack: false, item: false };
+
+  /** いま持っているぶき。 */
+  const weapon = (): Weapon => WEAPONS[weaponIndex];
 
   class Player {
     width = 40; height = 64;
@@ -359,12 +495,16 @@ export const mountTatakai: GameMount = (host, ctx) => {
     direction = 1;
     isAttacking = false;
     attackCooldown = 0;
-    attackRange = 110;
     attackDuration = 12;
     attackTimer = 0;
     invulnerableFrames = 0;
     animTimer = 0;
     isWalking = false;
+
+    /** ぶきを合わせたこうげき力。レベルで上がる分に、ぶきの分を足す。 */
+    get power(): number { return this.attackPower + weapon().power; }
+    /** ぶきで届く長さ。長いぶきほど、踏み込まずに当てられる。 */
+    get reach(): number { return weapon().range; }
 
     update(): void {
       if (this.invulnerableFrames > 0) this.invulnerableFrames--;
@@ -408,7 +548,10 @@ export const mountTatakai: GameMount = (host, ctx) => {
       this.attackTimer = this.attackDuration;
       this.attackCooldown = 8;
       playSound('swing');
-      slashes.push(new SlashEffect(this.x + this.width / 2 + this.direction * 45, this.y + this.height / 2, this.direction));
+      slashes.push(new SlashEffect(
+        this.x + this.width / 2 + this.direction * this.reach * 0.42,
+        this.y + this.height / 2, this.direction,
+      ));
     }
 
     draw(): void {
@@ -438,15 +581,20 @@ export const mountTatakai: GameMount = (host, ctx) => {
       c2d.fillStyle = '#ef4444';
       c2d.fillRect(2, -h / 2 + 8 + bob, 6, 3);
 
+      // 刃の色と長さは、持っているぶきから取る。買ったものが絵に出ないと、
+      // 買った実感が 数字の中だけで 終わる。
+      const blade = weapon().blade;
+      const grip = weapon().grip;
+      const bladeLen = 28 + weapon().range * 0.18;
       if (this.isAttacking) {
-        c2d.fillStyle = '#f3f4f6';
-        c2d.fillRect(10, -h / 2 + 16 + bob, 45, 10);
-        c2d.fillStyle = '#d97706';
+        c2d.fillStyle = blade;
+        c2d.fillRect(10, -h / 2 + 16 + bob, bladeLen, 10);
+        c2d.fillStyle = grip;
         c2d.fillRect(6, -h / 2 + 12 + bob, 4, 18);
       } else {
-        c2d.fillStyle = '#f3f4f6';
-        c2d.fillRect(-w / 2 - 2, -h / 2 + bob, 6, 24);
-        c2d.fillStyle = '#d97706';
+        c2d.fillStyle = blade;
+        c2d.fillRect(-w / 2 - 2, -h / 2 + bob - (bladeLen - 45) * 0.3, 6, 24 + (bladeLen - 45) * 0.3);
+        c2d.fillStyle = grip;
         c2d.fillRect(-w / 2 - 4, -h / 2 + 24 + bob, 10, 4);
       }
 
@@ -516,6 +664,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
     color = '#10b981';
     scoreVal = 10;
     expVal = 20;
+    /** 倒したときに落とすコイン。 */
+    coinVal = 5;
     knockbackTimer = 0;
     kbVx = 0; kbVy = 0;
     gravity = 0.52;
@@ -565,6 +715,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#9ca3af';
         this.scoreVal = 45;
         this.expVal = 80;
+        this.coinVal = 18;
         this.knockback = 6;
       } else if (type === 'ghost') {
         // 速く飛ぶ。当てにくい代わりに柔らかく、よく吹っ飛ぶ。
@@ -574,6 +725,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#e0e7ff';
         this.scoreVal = 25;
         this.expVal = 45;
+        this.coinVal = 11;
         this.flying = true;
         this.knockback = 26;
       } else {
@@ -583,6 +735,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#ef4444';
         this.scoreVal = 100;
         this.expVal = 200;
+        this.coinVal = 70;
         this.knockback = 11;
         bossSpawned = true;
         bossWarn.textContent = `⚠️ ステージ${atStage} ボス出現中！ ⚠️`;
@@ -595,6 +748,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       this.damage = Math.round(this.damage * stageDamageMul(atStage));
       this.scoreVal = Math.round(this.scoreVal * stageScoreMul(atStage));
       this.expVal = Math.round(this.expVal * stageScoreMul(atStage));
+      this.coinVal = Math.round(this.coinVal * stageScoreMul(atStage));
     }
 
     update(playerX: number): void {
@@ -936,6 +1090,59 @@ export const mountTatakai: GameMount = (host, ctx) => {
     }
   }
 
+  /**
+   * こぼれたコイン。
+   *
+   * 自動で さいふに 入れず、落として 拾わせる。拾いに行くあいだは 攻撃していないので、
+   * 「いま取りに行くか、先に敵を片付けるか」を その場で 決めることになる。
+   * しばらく 拾われないと 消える——画面に 残り続けると、後から 戻って まとめて
+   * 拾うだけの 遊びに なる。
+   */
+  class Coin {
+    vx = (Math.random() - 0.5) * 3.5;
+    vy = -4 - Math.random() * 3;
+    life = 480;
+    radius = 7;
+    spin = Math.random() * 6;
+    constructor(public x: number, public y: number, public value: number) {}
+
+    update(): void {
+      this.life--;
+      this.spin += 0.18;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += 0.38;
+      const groundY = BASE_HEIGHT - 40 - this.radius;
+      if (this.y >= groundY) {
+        this.y = groundY;
+        this.vy *= -0.45;
+        this.vx *= 0.82;
+        if (Math.abs(this.vy) < 1) this.vy = 0;
+      }
+      if (this.x < this.radius) { this.x = this.radius; this.vx *= -0.6; }
+      if (this.x > BASE_WIDTH - this.radius) { this.x = BASE_WIDTH - this.radius; this.vx *= -0.6; }
+    }
+
+    /** 拾えたか。拾えたら呼び出し側で消す。 */
+    taken(p: Player): boolean {
+      return this.x > p.x - 12 && this.x < p.x + p.width + 12
+        && this.y > p.y - 12 && this.y < p.y + p.height + 12;
+    }
+
+    draw(): void {
+      c2d.save();
+      // 消える前は またたかせる。急に 消えると、拾い損ねたことに 気づけない。
+      if (this.life < 90 && Math.floor(this.life / 6) % 2 === 0) c2d.globalAlpha = 0.3;
+      c2d.translate(this.x, this.y);
+      c2d.scale(Math.abs(Math.cos(this.spin)) * 0.8 + 0.2, 1);
+      c2d.fillStyle = '#fbbf24';
+      c2d.beginPath(); c2d.arc(0, 0, this.radius, 0, Math.PI * 2); c2d.fill();
+      c2d.fillStyle = '#b45309';
+      c2d.beginPath(); c2d.arc(0, 0, this.radius * 0.55, 0, Math.PI * 2); c2d.fill();
+      c2d.restore();
+    }
+  }
+
   class Environment {
     bgScroll = 0;
     stars = Array.from({ length: 30 }, () => ({
@@ -982,6 +1189,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
   let effects: LevelUpRing[] = [];
   let dusts: DustParticle[] = [];
   let windLines: WindLine[] = [];
+  let coinDrops: Coin[] = [];
 
   const spawnDamageText = (x: number, y: number, text: string): void => {
     damageTexts.push(new DamageText(Math.max(20, Math.min(BASE_WIDTH - 20, x)), y, text));
@@ -994,6 +1202,113 @@ export const mountTatakai: GameMount = (host, ctx) => {
     scoreEl.textContent = String(score);
     levelEl.textContent = String(level);
     stageEl.textContent = `${stage} / ${STAGE_COUNT}`;
+    purseEl.textContent = String(purse);
+    bagEl.textContent = String(bag);
+  };
+
+  /**
+   * やくそうを つかう。
+   *
+   * 押しっぱなしで 続けて 使えないよう、1回の 押し下げでだけ 呼ぶ（キーの 自動くり返しは
+   * 捨てる）。まんたんの ときは 減らさない——うっかり 押して 1つ 失うのは、
+   * 拾って 買った ぶんが 消えるのと 同じこと。
+   */
+  const useHerb = (): void => {
+    if (gameState !== 'PLAYING' || bag <= 0) return;
+    if (player.hp >= player.maxHp) {
+      spawnDamageText(player.x + player.width / 2, player.y - 30, 'まんたんだ！');
+      return;
+    }
+    bag--;
+    const before = player.hp;
+    player.hp = Math.min(player.maxHp, player.hp + HERB_HEAL);
+    playSound('heal');
+    spawnDamageText(player.x + player.width / 2, player.y - 40, `かいふく +${player.hp - before}`);
+    updateUI();
+  };
+
+  /** おうちの 中身を 組み直す。買った あとも ここを 呼ぶだけで 画面が 揃う。 */
+  const renderHome = (): void => {
+    q('[data-home-purse]').textContent = String(purse);
+    q('[data-home-bag]').textContent = String(bag);
+    q('[data-home-lead]').textContent = departed
+      ? `ステージ${stage}を 終えて 帰ってきた。つぎは ステージ${stage + 1}。`
+      : 'まずは ここから。ぶきを 見てから 出かけよう。';
+
+    const list = q('[data-weapon-list]');
+    list.replaceChildren();
+    for (const [index, w] of WEAPONS.entries()) {
+      const row = document.createElement('div');
+      row.className = 'tk-item-row';
+
+      const name = document.createElement('div');
+      name.className = 'tk-item-name';
+      name.append(document.createTextNode(w.name));
+      const note = document.createElement('span');
+      note.className = 'note';
+      note.textContent = `${w.note}／こうげき +${w.power}・とどく ${w.range}`;
+      name.append(note);
+
+      const btn = document.createElement('button');
+      if (index === weaponIndex) {
+        btn.className = 'tk-buy on';
+        btn.textContent = 'そうびちゅう';
+        btn.disabled = true;
+      } else if (owned[index]) {
+        btn.className = 'tk-buy equip';
+        btn.textContent = 'そうびする';
+        btn.addEventListener('click', () => {
+          weaponIndex = index;
+          playSound('buy');
+          renderHome();
+        });
+      } else {
+        btn.className = 'tk-buy';
+        btn.textContent = `${w.price} コインで かう`;
+        btn.disabled = purse < w.price;
+        btn.addEventListener('click', () => {
+          if (purse < w.price) return;
+          purse -= w.price;
+          owned[index] = true;
+          // 買ったら そのまま 持たせる。買ってから そうびし忘れて 出かけると、
+          // 弱いままで 戦うことになる。
+          weaponIndex = index;
+          playSound('buy');
+          renderHome();
+          updateUI();
+        });
+      }
+      row.append(name, btn);
+      list.append(row);
+    }
+
+    const herbBtn = q<HTMLButtonElement>('[data-buy-herb]');
+    if (bag >= BAG_MAX) {
+      herbBtn.textContent = 'バッグが いっぱい';
+      herbBtn.disabled = true;
+    } else {
+      herbBtn.textContent = `${HERB_PRICE} コインで かう`;
+      herbBtn.disabled = purse < HERB_PRICE;
+    }
+  };
+
+  const openHome = (): void => {
+    gameState = 'HOME';
+    renderHome();
+    showMenu('home');
+  };
+
+  /** おうちを出る。1本めなら そのまま 始め、帰ってきた あとなら つぎの ステージへ。 */
+  const depart = (): void => {
+    if (gameState !== 'HOME') return;
+    if (!departed) {
+      departed = true;
+      gameState = 'PLAYING';
+      updateUI();
+      showMenu(null);
+      return;
+    }
+    nextStage();
   };
 
   /** 連続で当てた数。2から出す（1は「連続」ではない）。 */
@@ -1048,6 +1363,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
     gameState = 'GAMEOVER';
     q('[data-final-score]').textContent = String(score);
     q('[data-final-level]').textContent = String(level);
+    q('[data-final-purse]').textContent = String(purse);
+    q('[data-final-weapon]').textContent = weapon().name;
     ctx.onFinish(score, startedAt || Date.now());
     showMenu('gameover');
   }
@@ -1083,7 +1400,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     // 残っている敵と、吹っ飛びの跡を片付けてから次へ入る。前のステージの敵が
     // 残っていると、強さの揃わない相手が混ざる。
     enemies = [];
-    slashes = []; damageTexts = []; sparks = []; dusts = []; windLines = [];
+    slashes = []; damageTexts = []; sparks = []; dusts = []; windLines = []; coinDrops = [];
     // ボスを倒したごほうびに、体力をぜんぶ戻す。少し無敵にしてから始める——
     // 画面が切り替わった直後に、出てきた敵と重なって削られるのを防ぐ。
     player.hp = player.maxHp;
@@ -1097,7 +1414,11 @@ export const mountTatakai: GameMount = (host, ctx) => {
   const resetGame = (): void => {
     player = new Player();
     enemies = []; slashes = []; damageTexts = []; sparks = []; dusts = []; windLines = []; effects = [];
+    coinDrops = [];
     score = 0; level = 1; exp = 0; nextLevelExp = 100;
+    // 持ちものは 1回の 遊びの 中だけ。やり直せば きのぼうから。
+    purse = START_COINS; bag = 0; weaponIndex = 0; departed = false;
+    owned = WEAPONS.map((_, i) => i === 0);
     stage = 1; stageScore = 0; combo = 0; comboTimer = 0;
     bossSpawned = false; spawnTimer = 0; screenShake = 0; hitStopTimer = 0;
     bossWarn.textContent = '⚠️ ボス出現中！ ⚠️';
@@ -1110,8 +1431,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
     initAudio();
     resetGame();
     startedAt = Date.now();
-    gameState = 'PLAYING';
-    showMenu(null);
+    // はじまりは 戦場ではなく おうち。出かける前に ひととおり 見てもらう。
+    openHome();
   };
 
   const togglePause = (): void => {
@@ -1161,20 +1482,32 @@ export const mountTatakai: GameMount = (host, ctx) => {
     for (const w of windLines) w.update();
     for (const f of effects) f.update();
 
+    for (const c of coinDrops) {
+      c.update();
+      if (c.life > 0 && c.taken(player)) {
+        c.life = 0;
+        purse += c.value;
+        playSound('coin');
+        spawnDamageText(c.x, c.y - 10, `+${c.value}`);
+        updateUI();
+      }
+    }
+
     if (player.isAttacking) {
       const margin = 20;
+      const reach = player.reach;
       const rangeX = player.direction === 1
         ? player.x + player.width - margin
-        : player.x - player.attackRange;
+        : player.x - reach;
       const attackBox: Rect = {
         x: rangeX,
         y: player.y - 15,
-        width: player.attackRange + margin,
+        width: reach + margin,
         height: player.height + 30,
       };
       for (const e of enemies) {
         if (!checkRectCollision(attackBox, e)) continue;
-        e.takeDamage(player.attackPower, player.x);
+        e.takeDamage(player.power, player.x);
         if (e.hp <= 0 && !e.counted) {
           e.counted = true;
           // 続けて当てているあいだは、倒したときの点が増える。コンボは「当てた数」なので、
@@ -1184,6 +1517,12 @@ export const mountTatakai: GameMount = (host, ctx) => {
           score += got;
           stageScore += got;
           if (bonus > 0) spawnDamageText(e.x + e.width / 2, e.y - 60, `+${bonus} コンボ！`);
+          // コインは 何枚かに 分けて こぼす。1枚で 置くと、拾う手ごたえが 出ない。
+          const pieces = Math.max(1, Math.min(6, Math.round(e.coinVal / 6)));
+          const each = Math.max(1, Math.round(e.coinVal / pieces));
+          for (let i = 0; i < pieces; i++) {
+            coinDrops.push(new Coin(e.x + e.width / 2, e.y + e.height / 2, each));
+          }
           player.gainExp(e.expVal);
           if (e.type === 'boss') finishStage();
         }
@@ -1202,6 +1541,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     }
 
     enemies = enemies.filter((e) => e.hp > 0 || e.trail.length > 0);
+    coinDrops = coinDrops.filter((c) => c.life > 0);
     slashes = slashes.filter((s) => s.life > 0);
     damageTexts = damageTexts.filter((d) => d.life > 0);
     sparks = sparks.filter((p) => p.life > 0);
@@ -1224,6 +1564,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     for (const du of dusts) du.draw();
     for (const w of windLines) w.draw();
     for (const p of sparks) p.draw();
+    for (const c of coinDrops) c.draw();
     for (const e of enemies) e.draw();
     player.draw();
     for (const s of slashes) s.draw();
@@ -1241,7 +1582,16 @@ export const mountTatakai: GameMount = (host, ctx) => {
   q('[data-start]').addEventListener('click', startGame);
   q('[data-restart]').addEventListener('click', startGame);
   q('[data-clear-restart]').addEventListener('click', startGame);
-  q('[data-next-stage]').addEventListener('click', nextStage);
+  q('[data-next-stage]').addEventListener('click', openHome);
+  q('[data-depart]').addEventListener('click', depart);
+  q('[data-buy-herb]').addEventListener('click', () => {
+    if (gameState !== 'HOME' || purse < HERB_PRICE || bag >= BAG_MAX) return;
+    purse -= HERB_PRICE;
+    bag++;
+    playSound('buy');
+    renderHome();
+    updateUI();
+  });
   q('[data-resume]').addEventListener('click', togglePause);
   q('[data-pause]').addEventListener('click', togglePause);
   q('[data-sound]').addEventListener('click', () => {
@@ -1253,6 +1603,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
   const onKeyDown = (e: KeyboardEvent): void => {
     keys[e.key] = true;
     keys[e.code] = true;
+    // やくそうは 押しっぱなしで 続けて 使えない（自動くり返しは 捨てる）。
+    if (!e.repeat && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) useHerb();
     if (HANDLED_KEYS.has(e.key) || HANDLED_KEYS.has(e.code)) e.preventDefault();
   };
   const onKeyUp = (e: KeyboardEvent): void => {
@@ -1267,10 +1619,11 @@ export const mountTatakai: GameMount = (host, ctx) => {
     touchInputs.right = false;
     touchInputs.jump = false;
     touchInputs.attack = false;
+    touchInputs.item = false;
   };
   window.addEventListener('mouseup', releaseAll);
 
-  for (const key of ['left', 'right', 'jump', 'attack'] as const) {
+  for (const key of ['left', 'right', 'jump', 'attack', 'item'] as const) {
     const btn = q(`[data-ctrl="${key}"]`);
     const startAction = (e?: Event): void => {
       e?.preventDefault();
@@ -1284,6 +1637,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         player.isGrounded = false;
         playSound('jump');
       }
+      if (key === 'item') useHerb();
     };
     const endAction = (e?: Event): void => {
       e?.preventDefault();
