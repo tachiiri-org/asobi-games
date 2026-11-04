@@ -665,7 +665,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     scoreVal = 10;
     expVal = 20;
     /** 倒したときに落とすコイン。 */
-    coinVal = 5;
+    coinVal = 3;
     knockbackTimer = 0;
     kbVx = 0; kbVy = 0;
     gravity = 0.52;
@@ -715,7 +715,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#9ca3af';
         this.scoreVal = 45;
         this.expVal = 80;
-        this.coinVal = 18;
+        this.coinVal = 12;
         this.knockback = 6;
       } else if (type === 'ghost') {
         // 速く飛ぶ。当てにくい代わりに柔らかく、よく吹っ飛ぶ。
@@ -725,7 +725,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#e0e7ff';
         this.scoreVal = 25;
         this.expVal = 45;
-        this.coinVal = 11;
+        this.coinVal = 7;
         this.flying = true;
         this.knockback = 26;
       } else {
@@ -735,7 +735,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         this.color = '#ef4444';
         this.scoreVal = 100;
         this.expVal = 200;
-        this.coinVal = 70;
+        this.coinVal = 45;
         this.knockback = 11;
         bossSpawned = true;
         bossWarn.textContent = `⚠️ ステージ${atStage} ボス出現中！ ⚠️`;
@@ -1093,10 +1093,13 @@ export const mountTatakai: GameMount = (host, ctx) => {
   /**
    * こぼれたコイン。
    *
-   * 自動で さいふに 入れず、落として 拾わせる。拾いに行くあいだは 攻撃していないので、
-   * 「いま取りに行くか、先に敵を片付けるか」を その場で 決めることになる。
-   * しばらく 拾われないと 消える——画面に 残り続けると、後から 戻って まとめて
-   * 拾うだけの 遊びに なる。
+   * はじめは ふつうに こぼれて、少し経つと こちらへ 寄ってくる。
+   *
+   * このゲームは 当てた敵が 画面の端まで 吹っ飛ぶ。落ちた場所に 置いたままに すると、
+   * 拾いに行くだけで 1体ぶんの 間が空いて、せっかくの コインが ほとんど 手に入らない
+   * （実際、そうして ステージ1つで 5枚しか 拾えなかった）。かといって 倒した瞬間に
+   * さいふへ 入れると、拾う手ごたえが 消える。寄り始めるまでに 間を 置いて、
+   * 近づく ひと手間だけ 残してある。
    */
   class Coin {
     vx = (Math.random() - 0.5) * 3.5;
@@ -1104,11 +1107,27 @@ export const mountTatakai: GameMount = (host, ctx) => {
     life = 480;
     radius = 7;
     spin = Math.random() * 6;
+    age = 0;
     constructor(public x: number, public y: number, public value: number) {}
 
-    update(): void {
+    update(p: Player): void {
       this.life--;
       this.spin += 0.18;
+      this.age++;
+
+      const dx = p.x + p.width / 2 - this.x;
+      const dy = p.y + p.height / 2 - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (this.age > 34 && dist > 1) {
+        // 寄っている間は 重力を かけない。地面を ころがるより、浮いて 来るほうが
+        // 「吸い寄せられている」と 分かりやすい。
+        this.vx = (this.vx + (dx / dist) * 1.1) * 0.88;
+        this.vy = (this.vy + (dy / dist) * 1.1) * 0.88;
+        this.x += this.vx;
+        this.y += this.vy;
+        return;
+      }
+
       this.x += this.vx;
       this.y += this.vy;
       this.vy += 0.38;
@@ -1483,7 +1502,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     for (const f of effects) f.update();
 
     for (const c of coinDrops) {
-      c.update();
+      c.update(player);
       if (c.life > 0 && c.taken(player)) {
         c.life = 0;
         purse += c.value;
@@ -1518,7 +1537,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
           stageScore += got;
           if (bonus > 0) spawnDamageText(e.x + e.width / 2, e.y - 60, `+${bonus} コンボ！`);
           // コインは 何枚かに 分けて こぼす。1枚で 置くと、拾う手ごたえが 出ない。
-          const pieces = Math.max(1, Math.min(6, Math.round(e.coinVal / 6)));
+          const pieces = Math.max(1, Math.min(6, Math.round(e.coinVal / 4)));
           const each = Math.max(1, Math.round(e.coinVal / pieces));
           for (let i = 0; i < pieces; i++) {
             coinDrops.push(new Coin(e.x + e.width / 2, e.y + e.height / 2, each));
