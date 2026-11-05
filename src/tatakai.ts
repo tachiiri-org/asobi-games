@@ -25,9 +25,12 @@
 //    戻って、ぶきを買い替えたり、やくそうをバッグに詰めたりする。倒す以外にやることが
 //    無いと、強くなる道がレベルだけになる——どう使うかを自分で決められる持ちものを
 //    置いて、遊ぶ人の側に選ぶところを作る。
-//  - コインも ぶきも バッグも、1回の遊びの中だけ持つ。置き場（ctx.save）は使わない
-//    ので、やり直すと最初のぼうに戻る。持ち越すなら保存が要り、ログインが要るゲームに
-//    なってしまう——このゲームは誰でも遊べるままにしておく。
+//  - コインは、力尽きても次の回に残る。せっかく拾った分が消えると、やり直すたびに
+//    また同じきのぼうから同じ敵を叩くことになり、繰り返すほど遠ざかる。ぶきとバッグは
+//    戻る——残ったコインの使い道が、毎回そこにある。
+//    ただし持つのはこの画面を開いているあいだだけ。置き場（ctx.save）は使わないので、
+//    ページを離れると消える。持ち越すには保存が要り、ログインが要るゲームになって
+//    しまう——このゲームは誰でも遊べるままにしておく。
 
 import type { GameMount } from './types';
 
@@ -245,7 +248,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
           <p class="k">最終スコア</p>
           <p class="v" data-final-score>0</p>
           <p class="sub">到達レベル: <span style="color:#60a5fa" data-final-level>1</span><br>
-            のこったコイン: <span style="color:#facc15" data-final-purse>0</span>　ぶき: <span style="color:#facc15" data-final-weapon>きのぼう</span></p>
+            のこったコイン: <span style="color:#facc15" data-final-purse>0</span>　ぶき: <span style="color:#facc15" data-final-weapon>きのぼう</span><br>
+            <span style="color:#4ade80">コインは つぎの ぼうけんにも もっていける</span></p>
         </div>
         <br>
         <button class="tk-go blue" data-restart>もう一度挑戦</button>
@@ -1438,8 +1442,11 @@ export const mountTatakai: GameMount = (host, ctx) => {
     enemies = []; slashes = []; damageTexts = []; sparks = []; dusts = []; windLines = []; effects = [];
     coinDrops = [];
     score = 0; level = 1; exp = 0; nextLevelExp = 100;
-    // 持ちものは 1回の 遊びの 中だけ。やり直せば きのぼうから。
-    purse = START_COINS; bag = 0; weaponIndex = 0; departed = false;
+    // コインだけは 持ち越す。少なくとも はじめの ぶんは あるように して、
+    // 0で 終わった 回の つぎに、おうちで 何も できない ことを なくす。
+    purse = Math.max(purse, START_COINS);
+    // ぶきと バッグは 戻す。残った コインの 使い道が、毎回 おうちに ある。
+    bag = 0; weaponIndex = 0; departed = false;
     owned = WEAPONS.map((_, i) => i === 0);
     stage = 1; stageScore = 0; combo = 0; comboTimer = 0;
     bossSpawned = false; spawnTimer = 0; screenShake = 0; hitStopTimer = 0;
