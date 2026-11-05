@@ -154,13 +154,13 @@ const CSS = `
 .tk-ctrl{background:#111827;padding:16px;border-top:2px solid #374151;user-select:none}
 .tk-ctrl .row{max-width:28rem;margin:0 auto;display:flex;justify-content:space-between;align-items:center}
 .tk-ctrl .grp{display:flex;gap:12px}
-.tk-pad{width:56px;height:56px;background:#374151;border:0;border-bottom:4px solid #111827;
+.tk-pad{width:62px;height:62px;background:#374151;border:0;border-bottom:4px solid #111827;
   border-radius:1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-size:22px;color:#fff;box-shadow:0 4px 6px -1px rgba(0,0,0,.3);cursor:pointer;font-family:inherit}
 .tk-pad:active{background:#6b7280}
 .tk-pad.jump{background:#1d4ed8;border-radius:50%;border-bottom-color:#1e3a8a}
 .tk-pad.jump:active{background:#3b82f6}
-.tk-pad.attack{width:64px;height:64px;background:#dc2626;border-radius:50%;border-bottom-color:#991b1b;
+.tk-pad.attack{width:72px;height:72px;background:#dc2626;border-radius:50%;border-bottom-color:#991b1b;
   transform:translateY(-8px)}
 .tk-pad.attack:active{background:#f87171}
 .tk-pad .cap{font-size:10px;font-weight:700}
@@ -229,9 +229,9 @@ export const mountTatakai: GameMount = (host, ctx) => {
         <span style="color:#fb923c">続けて当てると「れんぞく」でスコアが伸びる！</span></p>
         <div class="tk-keys">
           <p style="color:#facc15;font-weight:700">🎮 操作方法 🎮</p>
-          <p><kbd>←</kbd> <kbd>→</kbd> または画面ボタン：移動</p>
+          <p><kbd>←</kbd> <kbd>→</kbd> または <kbd>A</kbd> <kbd>D</kbd>、画面ボタン：移動</p>
           <p><kbd>スペース</kbd> または <kbd>X</kbd>：<span style="color:#f87171;font-weight:700">超・連続攻撃！</span></p>
-          <p><kbd>↑</kbd> または <kbd>Z</kbd>：ジャンプ</p>
+          <p><kbd>↑</kbd> <kbd>Z</kbd> <kbd>W</kbd>：ジャンプ</p>
           <p><kbd>C</kbd> または 🌿ボタン：やくそうを つかう</p>
           <p style="color:#4ade80">敵が おとす 🪙 を ひろって、おうちで ぶきや やくそうを かおう</p>
           <p style="color:#f87171;font-weight:700;font-size:10px">※動かない時は、まず画面を1回クリックしてね！</p>
@@ -489,7 +489,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     width = 40; height = 64;
     x = 100; y = BASE_HEIGHT - 64 - 40;
     vx = 0; vy = 0;
-    speed = 5.5; jumpPower = 13; gravity = 0.6;
+    speed = 7; jumpPower = 13.5; gravity = 0.6;
     isGrounded = false;
     maxHp = 100; hp = 100; attackPower = 20;
     direction = 1;
@@ -509,13 +509,16 @@ export const mountTatakai: GameMount = (host, ctx) => {
     update(): void {
       if (this.invulnerableFrames > 0) this.invulnerableFrames--;
 
-      const goLeft = keys['ArrowLeft'] || touchInputs.left;
-      const goRight = keys['ArrowRight'] || touchInputs.right;
+      // 矢印のほかに A / D でも 動けるようにする。右手で こうげき（スペース）を
+      // 押しながら、左手で 動かす 持ち方ができる。
+      const goLeft = keys['ArrowLeft'] || keys['a'] || keys['A'] || keys['KeyA'] || touchInputs.left;
+      const goRight = keys['ArrowRight'] || keys['d'] || keys['D'] || keys['KeyD'] || touchInputs.right;
       if (goLeft) { this.vx = -this.speed; this.direction = -1; this.isWalking = true; }
       else if (goRight) { this.vx = this.speed; this.direction = 1; this.isWalking = true; }
       else { this.vx = 0; this.isWalking = false; }
 
-      const doJump = keys['ArrowUp'] || keys['z'] || keys['Z'] || keys['KeyZ'] || touchInputs.jump;
+      const doJump = keys['ArrowUp'] || keys['z'] || keys['Z'] || keys['KeyZ']
+        || keys['w'] || keys['W'] || keys['KeyW'] || touchInputs.jump;
       if (doJump && this.isGrounded) {
         this.vy = -this.jumpPower;
         this.isGrounded = false;
@@ -803,7 +806,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
 
     triggerWallCrash(wallSide: number): void {
       this.hasCrashed = true;
-      screenShake = 26;
+      screenShake = 18;
       playSound('crash');
       spawnDamageText(this.x + this.width / 2, this.y - 45, '壁ドンッ！');
       spawnDamageText(this.x + this.width / 2, this.y - 20, 'ドゴォォン！');
@@ -958,8 +961,8 @@ export const mountTatakai: GameMount = (host, ctx) => {
       this.hp -= amount;
       this.invulnerableFrames = 15;
       playSound('hit');
-      hitStopTimer = 4;
-      screenShake = 16;
+      hitStopTimer = 2;
+      screenShake = 10;
 
       combo++;
       comboTimer = COMBO_KEEP;
@@ -1573,7 +1576,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     c2d.clearRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
     c2d.save();
     if (screenShake > 0) {
-      const intensity = Math.min(screenShake, 11);
+      const intensity = Math.min(screenShake, 8);
       c2d.translate((Math.random() - 0.5) * intensity, (Math.random() - 0.5) * intensity);
       screenShake *= 0.84;
       if (screenShake < 0.5) screenShake = 0;
@@ -1667,6 +1670,29 @@ export const mountTatakai: GameMount = (host, ctx) => {
     btn.addEventListener('touchcancel', endAction, { passive: false });
     btn.addEventListener('mousedown', startAction);
   }
+
+  /**
+   * 指を すべらせて ← → を 行き来できるようにする。
+   *
+   * touchmove は 指を 置いた ボタンにしか 届かないので、ボタンごとの touchend だけだと、
+   * 指を 離さずに 隣の ボタンへ すべらせたとき、どちらも 押されていないことになって
+   * 足が 止まる。いま 指が どのボタンの 上に あるかで、毎回 決め直す。
+   */
+  const ctrlRow = q('.tk-ctrl');
+  const onCtrlMove = (e: TouchEvent): void => {
+    e.preventDefault();
+    let left = false;
+    let right = false;
+    for (const touch of Array.from(e.touches)) {
+      const under = document.elementFromPoint(touch.clientX, touch.clientY);
+      const key = (under?.closest('[data-ctrl]') as HTMLElement | null)?.dataset['ctrl'];
+      if (key === 'left') left = true;
+      if (key === 'right') right = true;
+    }
+    touchInputs.left = left;
+    touchInputs.right = right;
+  };
+  ctrlRow.addEventListener('touchmove', onCtrlMove, { passive: false });
 
   updateUI();
   loop();
