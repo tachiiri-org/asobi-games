@@ -191,6 +191,19 @@ const CSS = `
 .tk-pad.item{background:#166534;border-bottom-color:#14532d}
 .tk-pad.item:active{background:#22c55e}
 .tk-head .k.c{color:#fbbf24}
+.tk-report{background:rgba(17,24,39,.9);border:2px solid #374151;border-radius:.6rem;
+  padding:10px 14px;max-width:22rem;margin:0 auto 16px;text-align:left}
+.tk-report .top{text-align:center;border-bottom:1px solid #374151;padding-bottom:7px;margin-bottom:8px}
+.tk-report .top .k{font-size:11px;color:#9ca3af;margin:0;letter-spacing:.08em}
+.tk-report .top .v{font-size:30px;font-weight:800;color:#facc15;margin:0;
+  font-family:ui-monospace,monospace;line-height:1.2}
+.tk-report dl{display:grid;grid-template-columns:auto auto;gap:3px 14px;margin:0;font-size:13px}
+.tk-report dt{color:#9ca3af;min-width:0}
+.tk-report dd{margin:0;text-align:right;font-weight:700;color:#f3f4f6;
+  font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums;min-width:0}
+.tk-report dd.hi{color:#facc15}
+.tk-report .keep{grid-column:1 / -1;margin:7px 0 0;padding-top:7px;border-top:1px solid #374151;
+  font-size:11px;color:#4ade80;text-align:center;font-family:inherit;font-weight:400}
 .tk-home h2{font-size:22px;margin:0 0 6px}
 .tk-home .tk-home-lead{font-size:12px;margin:0 0 8px}
 .tk-home .tk-shop{padding:9px 11px;margin-bottom:11px}
@@ -245,24 +258,13 @@ export const mountTatakai: GameMount = (host, ctx) => {
       <div class="tk-hidden" data-menu="gameover">
         <h2 class="over">GAME OVER</h2>
         <p style="color:#d1d5db">あなたは力尽きてしまった...</p>
-        <div class="tk-panel over">
-          <p class="k">最終スコア</p>
-          <p class="v" data-final-score>0</p>
-          <p class="sub">到達レベル: <span style="color:#60a5fa" data-final-level>1</span><br>
-            のこったコイン: <span style="color:#facc15" data-final-purse>0</span>　ぶき: <span style="color:#facc15" data-final-weapon>きのぼう</span><br>
-            <span style="color:#4ade80">コインも 買ったものも つぎの ぼうけんに もっていける</span></p>
-        </div>
-        <br>
+        <div class="tk-report" data-report></div>
         <button class="tk-go blue" data-restart>もう一度挑戦</button>
       </div>
       <div class="tk-hidden" data-menu="clear">
         <h2 class="win">VICTORY!</h2>
         <p style="color:#4ade80;font-weight:700">全3ステージのボスを撃破し、世界に平和が戻った！</p>
-        <div class="tk-panel win">
-          <p class="k">ハイスコア</p>
-          <p class="v" data-clear-score>0</p>
-        </div>
-        <br>
+        <div class="tk-report" data-report></div>
         <button class="tk-go yellow" data-clear-restart>もう一度遊ぶ</button>
       </div>
       <div class="tk-hidden" data-menu="stageclear">
@@ -473,6 +475,16 @@ export const mountTatakai: GameMount = (host, ctx) => {
   let weaponIndex = 0;
   /** もう出かけたか。おうちの「でかける」が、1本めの出発か次のステージかを分ける。 */
   let departed = false;
+
+  // ── この1回で やったこと。おわりの レポートに 出す。
+  /** 倒した数。 */
+  let kills = 0;
+  /** 拾ったコインの合計。さいふは 持ち越すので、この回で 稼いだ分とは 別に 数える。 */
+  let coinsEarned = 0;
+  /** いちばん長く 続いた れんぞく。 */
+  let bestCombo = 0;
+  /** つかった やくそうの数。 */
+  let herbsUsed = 0;
   let exp = 0;
   let nextLevelExp = 100;
   let bossSpawned = false;
@@ -970,6 +982,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       screenShake = 10;
 
       combo++;
+      if (combo > bestCombo) bestCombo = combo;
       comboTimer = COMBO_KEEP;
       updateCombo();
 
@@ -1247,6 +1260,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       return;
     }
     bag--;
+    herbsUsed++;
     const before = player.hp;
     player.hp = Math.min(player.maxHp, player.hp + HERB_HEAL);
     playSound('heal');
@@ -1388,19 +1402,71 @@ export const mountTatakai: GameMount = (host, ctx) => {
     }
   };
 
+  /** あそんだ 長さ。分と秒に 割る。 */
+  const playTime = (): string => {
+    const sec = Math.max(1, Math.round((Date.now() - (startedAt || Date.now())) / 1000));
+    const min = Math.floor(sec / 60);
+    return min > 0 ? `${min}分${sec % 60}びょう` : `${sec}びょう`;
+  };
+
+  /**
+   * ぼうけんの レポート。
+   *
+   * 点だけ 出しても、何が よかったのかは 分からない。たおした数・いちばん長い れんぞく・
+   * あつめたコイン・つかったやくそうを 並べると、つぎは どこを 伸ばすかが 自分で 決められる。
+   * 2つの おわり（力尽きた／ぜんぶ倒した）で 同じものを 出すので、組み立ては ここ1か所。
+   */
+  const renderReport = (into: HTMLElement): void => {
+    into.replaceChildren();
+
+    const top = document.createElement('div');
+    top.className = 'top';
+    const topKey = document.createElement('p');
+    topKey.className = 'k';
+    topKey.textContent = 'スコア';
+    const topVal = document.createElement('p');
+    topVal.className = 'v';
+    topVal.textContent = score.toLocaleString('ja-JP');
+    top.append(topKey, topVal);
+
+    const rows: readonly (readonly [string, string, boolean])[] = [
+      ['たおした かず', `${kills}たい`, false],
+      ['いちばん れんぞく', bestCombo >= 2 ? `${bestCombo}かい` : 'なし', bestCombo >= 5],
+      ['あつめた コイン', `${coinsEarned}`, false],
+      ['つかった やくそう', `${herbsUsed}こ`, false],
+      ['とうたつ', `ステージ${stage} / レベル${level}`, false],
+      ['もっていた ぶき', weapon().name, true],
+      ['あそんだ じかん', playTime(), false],
+    ];
+
+    const dl = document.createElement('dl');
+    for (const [key, value, hi] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = key;
+      const dd = document.createElement('dd');
+      dd.textContent = value;
+      if (hi) dd.className = 'hi';
+      dl.append(dt, dd);
+    }
+
+    const keep = document.createElement('p');
+    keep.className = 'keep';
+    keep.textContent = `コイン ${purse} と 買ったものは つぎの ぼうけんに もっていける`;
+    dl.append(keep);
+
+    into.append(top, dl);
+  };
+
   function gameOver(): void {
     gameState = 'GAMEOVER';
-    q('[data-final-score]').textContent = String(score);
-    q('[data-final-level]').textContent = String(level);
-    q('[data-final-purse]').textContent = String(purse);
-    q('[data-final-weapon]').textContent = weapon().name;
+    renderReport(q('[data-menu="gameover"] [data-report]'));
     ctx.onFinish(score, startedAt || Date.now());
     showMenu('gameover');
   }
 
   function gameClear(): void {
     gameState = 'CLEAR';
-    q('[data-clear-score]').textContent = String(score);
+    renderReport(q('[data-menu="clear"] [data-report]'));
     ctx.onFinish(score, startedAt || Date.now());
     showMenu('clear');
   }
@@ -1445,6 +1511,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
     enemies = []; slashes = []; damageTexts = []; sparks = []; dusts = []; windLines = []; effects = [];
     coinDrops = [];
     score = 0; level = 1; exp = 0; nextLevelExp = 100;
+    kills = 0; coinsEarned = 0; bestCombo = 0; herbsUsed = 0;
     // 持ちものは 持ち越す。買ったものが 消えると、やり直すたびに また はじめから
     // 買い直すことに なる。コインは 少なくとも はじめの ぶんは あるように して、
     // 0で 終わった 回の つぎに、おうちで 何も できない ことを なくす。
@@ -1518,6 +1585,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
       if (c.life > 0 && c.taken(player)) {
         c.life = 0;
         purse += c.value;
+        coinsEarned += c.value;
         playSound('coin');
         spawnDamageText(c.x, c.y - 10, `+${c.value}`);
         updateUI();
@@ -1541,6 +1609,7 @@ export const mountTatakai: GameMount = (host, ctx) => {
         e.takeDamage(player.power, player.x);
         if (e.hp <= 0 && !e.counted) {
           e.counted = true;
+          kills++;
           // 続けて当てているあいだは、倒したときの点が増える。コンボは「当てた数」なので、
           // 1体を続けて叩いても、何体かをまとめて当てても伸びる。
           const bonus = Math.floor(e.scoreVal * Math.min(combo - 1, 20) * 0.08);
