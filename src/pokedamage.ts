@@ -530,6 +530,14 @@ type Move = {
   readonly name: string;
   readonly type: TypeKey;
   readonly power: number;
+  /**
+   * あいての ぼうぎょを はんぶんに して 計算する わざ。
+   *
+   * だいばくはつと じばく だけ。第5世代で なくなった ので、この ころ だけの 決まり。
+   */
+  readonly halvesDefence?: true;
+  /** うつと じぶんも たおれる わざ。うてるのは 1回だけ。 */
+  readonly selfKo?: true;
 };
 
 /**
@@ -581,6 +589,8 @@ const MOVES: readonly Move[] = [
   { name: 'すてみタックル', type: 'normal', power: 120 },
   { name: 'メガトンキック', type: 'normal', power: 120 },
   { name: 'はかいこうせん', type: 'normal', power: 150 },
+  { name: 'じばく', type: 'normal', power: 200, halvesDefence: true, selfKo: true },
+  { name: 'だいばくはつ', type: 'normal', power: 250, halvesDefence: true, selfKo: true },
   { name: 'ひのこ', type: 'fire', power: 40 },
   { name: 'かえんぐるま', type: 'fire', power: 60 },
   { name: 'ほのおのパンチ', type: 'fire', power: 75 },
@@ -1270,7 +1280,7 @@ const numInput = (cls: string, value: string, min: number, max: number): HTMLInp
 /**
  * わざの 一覧を タイプごとに まとめる。
  *
- * 130本を 1列に ならべると 探せない。まとめると ついでに、どの タイプが 物理で
+ * 132本を 1列に ならべると 探せない。まとめると ついでに、どの タイプが 物理で
  * どれが 特殊かも 見える——第3世代は そこが わざ ではなく タイプで 決まるので、
  * いまの作品から 来た人が いちばん まちがえる ところ。
  */
@@ -1290,6 +1300,7 @@ const fillMoves = (node: HTMLSelectElement, value: string): void => {
       const opt = el('option');
       opt.value = String(i);
       opt.textContent = m.power > 0 ? `${m.name} ${m.power}` : `${m.name}（おもさで かわる）`;
+      if (m.selfKo) opt.textContent += '（じぶんも たおれる）';
       group.appendChild(opt);
     });
     if (group.childElementCount) parts.push(group);
@@ -1615,7 +1626,9 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const defStat = defenceOf(defSlot, defSide, physical, at);
     // ランクは 実数に かけてから きりすてる。
     const atkUsed = Math.max(1, Math.floor(atkStat * rankMul(Number(ctl[atkSide].rank.value))));
-    const defUsed = Math.max(1, Math.floor(defStat * rankMul(Number(ctl[defSide].rank.value))));
+    const ranked = Math.max(1, Math.floor(defStat * rankMul(Number(ctl[defSide].rank.value))));
+    // だいばくはつと じばくは、あいての ぼうぎょを はんぶんに して ぶつかる。
+    const defUsed = mv.halvesDefence ? Math.max(1, Math.floor(ranked / 2)) : ranked;
     const hp = hpOf(defSlot, defSide, at);
 
     const stab = atkMon.types.includes(mv.type);
@@ -2198,13 +2211,16 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
     const sure = hitsToKo(pair.hp, pair.lo, pair.heal);
     const lucky = hitsToKo(pair.hp, pair.hi, pair.heal);
     const healNote = pair.heal ? `（たべのこしで まいターン ${pair.heal} なおる）` : '';
+    const once = pair.mv.selfKo
+      ? '（じぶんも たおれる わざ。うてるのは 1回だけ）'
+      : '';
     ko.textContent = lucky === null
       ? `たおせない。1発の ダメージより、なおる ぶんの ほうが 多い${healNote}`
       : sure === null
         ? `うまくいけば ${lucky}はつ。わるいと なおる ぶんに 追いつかれる${healNote}`
         : sure === lucky
-          ? `かくじつに ${sure}はつで たおせる${healNote}`
-          : `うまくいけば ${lucky}はつ、かくじつには ${sure}はつで たおせる${healNote}`;
+          ? `かくじつに ${sure}はつで たおせる${healNote}${once}`
+          : `うまくいけば ${lucky}はつ、かくじつには ${sure}はつで たおせる${healNote}${once}`;
 
     const head = el('tr');
     head.append(el('th', undefined, 'つかった すうじ'), el('th', undefined, 'あたい'));
@@ -2215,7 +2231,9 @@ export const mountPokeDamage: GameMount = (host, ctx) => {
         ? String(pair.power)
         : `${pair.power}（おもさ ${pair.defMon.weight}kg）`],
       [pair.physical ? 'こうげき' : 'とくこう', String(pair.atkUsed)],
-      [pair.physical ? 'ぼうぎょ' : 'とくぼう', String(pair.defUsed)],
+      [pair.mv.halvesDefence
+        ? `${pair.physical ? 'ぼうぎょ' : 'とくぼう'}（はんぶんに される）`
+        : (pair.physical ? 'ぼうぎょ' : 'とくぼう'), String(pair.defUsed)],
       ['まもる がわの HP', String(pair.hp)],
       ['タイプ一致', pair.stab ? '× 1.5' : '× 1'],
       ['タイプ相性', `× ${pair.typeMul}`],
