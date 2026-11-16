@@ -10,7 +10,8 @@ front（`tachiiri-org/front`）から **submodule** として読まれる。こ�
 
 ```
 src/types.ts      あそびばとの約束ごと。これだけが front と共有する形
-src/tennis.ts     ゲーム1本 = 1ファイル（ペットだけ大きいので src/pet/ に分けてある）
+src/tennis.ts     ゲーム1本 = 1ファイル
+src/pet/          大きいものはフォルダに分ける（ペット・せかいのまち src/machi/）
 ```
 
 ## ゲームの形
