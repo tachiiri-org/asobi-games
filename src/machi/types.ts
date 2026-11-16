@@ -69,7 +69,56 @@ export type Person = {
   dots: string;
   /** すんでいる まち。まだ どこにも いなければ null。 */
   city: string | null;
+  /** もっている どうぐ。事件の ときの ちからに なる。 */
+  weapon?: string | null;
 };
+
+/** 事件の たね。good は たたかわない（いいこと が おきる）。 */
+export type EventKind = 'fire' | 'thief' | 'monster' | 'storm' | 'good';
+
+export type TownEvent = {
+  readonly id: string;
+  readonly label: string;
+  readonly emoji: string;
+  readonly kind: EventKind;
+  /** これだけ ちからが あれば らくに かてる。good では つかわない。 */
+  readonly need: number;
+  /** かったとき（good なら おきたとき）に もらえる コイン。 */
+  readonly prize: number;
+  /** まけたときに なくす コイン。 */
+  readonly damage: number;
+  /** まけると たてものが 1つ こわれるか。 */
+  readonly breaks: boolean;
+  readonly warn: string;
+  readonly win: string;
+  readonly lose: string;
+};
+
+/** ぶきやの しなもの。kind が 合う 事件に よく きく。 */
+export type Weapon = {
+  readonly id: string;
+  readonly label: string;
+  readonly emoji: string;
+  readonly cost: number;
+  /** 'all' は どの 事件にも 同じだけ きく。 */
+  readonly kind: EventKind | 'all';
+  readonly power: number;
+  readonly note: string;
+};
+
+/** まちの レポート。じぶんで 書く。 */
+export type Report = {
+  readonly id: string;
+  title: string;
+  body: string;
+  /** 書いた とき。 */
+  at: number;
+  /** その ときの せかいの じんこう。あとで 読みかえす ときの めじるし。 */
+  pop: number;
+};
+
+/** できごとの ひかえ。レポートを 書く ときの 下じきに する。 */
+export type LogEntry = { at: number; text: string };
 
 export type MachiState = {
   version: number;
@@ -80,11 +129,21 @@ export type MachiState = {
   tiles: Record<string, (string | null)[]>;
   /** ひらいた まち。 */
   opened: string[];
-  stats: { built: number; drawn: number; maxPop: number };
+  /** ぶきやで かった どうぐ。id → かず。 */
+  weapons: Record<string, number>;
+  /** さいきんの できごと。新しいものが さき。30件まで。 */
+  log: LogEntry[];
+  stats: { built: number; drawn: number; maxPop: number; won: number; lost: number };
 };
 
 /** キャラは べつの 置き場に 置く（かいた ときだけ 変わるので、毎秒の 保存に のせない）。 */
 export type PeopleSave = {
   version: number;
   people: Person[];
+};
+
+/** レポートも べつの 置き場。長い 文が 入るので、毎秒の 保存に のせない。 */
+export type ReportSave = {
+  version: number;
+  reports: Report[];
 };

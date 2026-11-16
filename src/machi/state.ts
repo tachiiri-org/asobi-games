@@ -18,8 +18,17 @@ export const newState = (): MachiState => ({
   here: CITIES[0].id,
   tiles: { [CITIES[0].id]: new Array<string | null>(TILES).fill(null) },
   opened: [CITIES[0].id],
-  stats: { built: 0, drawn: 0, maxPop: 0 },
+  weapons: {},
+  log: [],
+  stats: { built: 0, drawn: 0, maxPop: 0, won: 0, lost: 0 },
 });
+
+/** できごとを ひかえに のこす。レポートを 書く ときの 下じきに なる。 */
+export const LOG_MAX = 30;
+export const addLog = (state: MachiState, text: string): void => {
+  state.log.unshift({ at: Date.now(), text });
+  if (state.log.length > LOG_MAX) state.log.length = LOG_MAX;
+};
 
 /** そのまちの ごばん。まだ 無ければ つくる。 */
 export const tilesOf = (state: MachiState, cityId: string): (string | null)[] => {
@@ -109,7 +118,22 @@ export const deserialize = (raw: string): MachiState | null => {
     if (!state.opened.includes(CITIES[0].id)) state.opened.unshift(CITIES[0].id);
     if (!state.opened.includes(state.here)) state.here = CITIES[0].id;
     if (typeof state.coins !== 'number' || !Number.isFinite(state.coins)) state.coins = START_COINS;
-    if (!state.stats) state.stats = { built: 0, drawn: 0, maxPop: 0 };
+
+    // 事件・ぶき・レポートより まえの 保存にも、無い 欄が ある。欄が 1つ 欠けた
+    // だけで 開けなくなる 形には しない。
+    if (!state.weapons || typeof state.weapons !== 'object') state.weapons = {};
+    if (!Array.isArray(state.log)) state.log = [];
+    state.log = state.log
+      .filter((e) => e && typeof e.text === 'string' && typeof e.at === 'number')
+      .slice(0, LOG_MAX);
+    const stats = state.stats as Partial<MachiState['stats']> | undefined;
+    state.stats = {
+      built: stats?.built ?? 0,
+      drawn: stats?.drawn ?? 0,
+      maxPop: stats?.maxPop ?? 0,
+      won: stats?.won ?? 0,
+      lost: stats?.lost ?? 0,
+    };
     return state;
   } catch {
     return null;
@@ -137,6 +161,7 @@ export const deserializePeople = (raw: string): Person[] | null => {
       name: typeof p?.name === 'string' && p.name ? p.name.slice(0, 6) : 'なまえ',
       dots: fixDots(p?.dots),
       city: typeof p?.city === 'string' && CITIES.some((c) => c.id === p.city) ? p.city : null,
+      weapon: typeof p?.weapon === 'string' ? p.weapon : null,
     }));
   } catch {
     return null;

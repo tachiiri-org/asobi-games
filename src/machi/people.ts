@@ -7,6 +7,7 @@
 // 絵の 置き場（dots）は もじの ならび。'.' は すけて見える ところ、0〜f は 色の 番号。
 
 import { DOT, NAME_SEEDS, PALETTE, dotChar } from './data';
+import { WEAPONS, sparesOf } from './shop';
 import { blankDots } from './state';
 import type { City, Person } from './types';
 
@@ -227,16 +228,19 @@ export const buildPeopleList = (opts: {
   readonly cities: readonly City[];
   readonly here: string;
   readonly max: number;
+  /** ぶきやで かった どうぐ。id → かず。 */
+  readonly weapons: Record<string, number>;
   readonly onNew: () => void;
   readonly onEdit: (person: Person) => void;
   readonly onMove: (person: Person, cityId: string | null) => void;
+  readonly onGive: (person: Person, weaponId: string | null) => void;
   readonly onRemove: (person: Person) => void;
   readonly onClose: () => void;
 }): HTMLElement => {
   const wrap = el('div');
   wrap.append(
     el('div', 'mc-mtitle', `👫 じぶんの キャラ（${opts.people.length}/${opts.max}）`),
-    el('p', 'mc-note', 'すむ まちを えらぶと、そのまちを 歩くよ。すんでいる 人が おおい まちは、もうけも ふえる。'),
+    el('p', 'mc-note', 'すむ まちを えらぶと、そのまちを 歩くよ。すんでいる 人が おおい まちは、もうけも ふえる。ぶきやで かった どうぐを わたすと、事件の ときに つよくなる。'),
   );
 
   const list = el('div', 'mc-plist');
@@ -272,6 +276,23 @@ export const buildPeopleList = (opts: {
     where.value = person.city ?? '';
     where.addEventListener('change', () => opts.onMove(person, where.value || null));
     mid.appendChild(where);
+
+    // もちもの。あまっている どうぐと、いま 自分が 持っている ものだけ ならべる
+    // （1つの どうぐを 2人で 持つ ことには しない）。
+    const gear = el('select', 'mc-sel');
+    const bare = el('option', undefined, 'どうぐ なし');
+    bare.value = '';
+    gear.appendChild(bare);
+    for (const weapon of WEAPONS) {
+      const spare = sparesOf(opts.weapons, opts.people, weapon.id);
+      if (spare <= 0 && person.weapon !== weapon.id) continue;
+      const o = el('option', undefined, `${weapon.emoji} ${weapon.label}（+${weapon.power}）`);
+      o.value = weapon.id;
+      gear.appendChild(o);
+    }
+    gear.value = person.weapon ?? '';
+    gear.addEventListener('change', () => opts.onGive(person, gear.value || null));
+    mid.appendChild(gear);
 
     const side = el('div', 'mc-pside');
     const edit = el('button', 'mc-btn blue', '✏️');

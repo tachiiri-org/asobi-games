@@ -17,12 +17,18 @@ import {
 import {
   cityAt, createSpriteCache, drawCity, drawWorld, layoutOf, tileAt,
 } from './draw';
+import { buildBattle, pickEvent } from './events';
 import { buildDrawEditor, buildPeopleList } from './people';
 import {
-  cityToOpen, deserialize, deserializePeople, incomePer10s, newState, popOfCity,
+  REPORTS_MAX, buildReportEditor, buildReportList, dateText, deserializeReports,
+  serializeReports,
+} from './report';
+import { buildWeaponShop } from './shop';
+import {
+  addLog, cityToOpen, deserialize, deserializePeople, incomePer10s, newState, popOfCity,
   residentsOf, serialize, serializePeople, tilesOf, worldPop,
 } from './state';
-import type { MachiState, Person } from './types';
+import type { MachiState, Person, Report, TownEvent } from './types';
 
 const CSS = `
 .mc{position:absolute;inset:0;overflow-y:auto;background:linear-gradient(#1e3a8a,#0f172a);
@@ -84,7 +90,46 @@ const CSS = `
 .mc-pside{display:flex;gap:4px;flex:none}
 .mc-pside .mc-btn{padding:.35rem .5rem}
 .mc-sel{width:100%;border:2px solid #b45309;border-radius:999px;padding:2px 6px;font-size:.72rem;
-  font-family:inherit;color:#78350f;background:#fffdf7;box-sizing:border-box}
+  font-family:inherit;color:#78350f;background:#fffdf7;box-sizing:border-box;margin-top:3px}
+
+/* ── 事件 */
+.mc-bigmark{font-size:3.2rem;line-height:1.1;animation:mc-shake .5s infinite}
+@keyframes mc-shake{0%,100%{transform:translateX(-4px) rotate(-4deg)}50%{transform:translateX(4px) rotate(4deg)}}
+.mc-power{font-size:.78rem;font-weight:700;color:#b45309;margin:4px 0 6px}
+.mc-team{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:6px}
+.mc-teamone{position:relative;width:40px;height:40px}
+.mc-teamone .mc-pface{width:40px;height:40px}
+.mc-teamw{position:absolute;right:-4px;bottom:-4px;font-size:.9rem}
+.mc-track{position:relative;height:30px;background:#e2e8f0;border:3px solid #334155;
+  border-radius:8px;overflow:hidden;margin-bottom:6px}
+.mc-zone{position:absolute;top:0;bottom:0;background:#fde68a;border-left:2px dashed #f59e0b;
+  border-right:2px dashed #f59e0b}
+.mc-marker{position:absolute;top:-2px;width:6px;height:34px;background:#dc2626;margin-left:-3px}
+.mc-marker.hit{background:#16a34a}
+.mc-marker.miss{background:#475569}
+
+/* ── ぶきや */
+.mc-wlist{max-height:46vh;overflow-y:auto;margin-bottom:8px}
+.mc-wrow{display:flex;align-items:center;gap:8px;border:3px solid #78350f;border-radius:12px;
+  padding:6px;margin-bottom:6px;background:#fff}
+.mc-wmark{font-size:1.5rem;flex:none;width:34px;text-align:center}
+.mc-wnote{font-size:.68rem;color:#6b7280;line-height:1.4}
+.mc-wrow .mc-btn{flex:none;padding:.4rem .6rem}
+
+/* ── レポート */
+.mc-body{width:100%;box-sizing:border-box;border:3px solid #b45309;border-radius:.7rem;
+  padding:.5rem;font-family:inherit;font-size:.82rem;line-height:1.7;margin-bottom:8px;
+  resize:vertical}
+.mc-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.mc-chip{background:#fef3c7;border:2px solid #f59e0b;border-radius:999px;padding:2px 8px;
+  font-size:.68rem;font-family:inherit;color:#78350f;cursor:pointer;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-read{text-align:left;font-size:.82rem;line-height:1.8;white-space:pre-wrap;
+  background:#fff;border:3px solid #78350f;border-radius:12px;padding:8px;margin-bottom:8px;
+  max-height:50vh;overflow-y:auto;word-break:break-word}
+.mc-loglist{text-align:left;max-height:50vh;overflow-y:auto;margin-bottom:8px}
+.mc-logrow{border-bottom:1px dashed #e7e5e4;padding:5px 2px;font-size:.78rem;color:#44403c}
+.mc-logrow span{display:block;font-size:.64rem;color:#a8a29e}
 `;
 
 export const mountMachi: GameMount = (host, ctx) => {
@@ -106,8 +151,13 @@ export const mountMachi: GameMount = (host, ctx) => {
       <button class="mc-btn green" data-draw>✏️ キャラをかく</button>
       <button class="mc-btn" data-people>👫 キャラ</button>
     </div>
+    <div class="mc-row3">
+      <button class="mc-btn" data-shop style="background:#dc2626;border-bottom-color:#7f1d1d">⚔️ ぶきや</button>
+      <button class="mc-btn" data-report style="background:#7c3aed;border-bottom-color:#5b21b6">📓 レポート</button>
+      <button class="mc-btn gray" data-log>🔔 できごと</button>
+    </div>
   </div>
-  <div class="mc-panel" data-shop>
+  <div class="mc-panel" data-palette>
     <p class="mc-hint" data-hint></p>
     <div class="mc-builds" data-builds></div>
   </div>
@@ -123,7 +173,7 @@ export const mountMachi: GameMount = (host, ctx) => {
   const statsEl = q<HTMLElement>('stats');
   const hintEl = q<HTMLElement>('hint');
   const buildsEl = q<HTMLElement>('builds');
-  const shopEl = q<HTMLElement>('shop');
+  const paletteEl = q<HTMLElement>('palette');
   const toastEl = q<HTMLElement>('toast');
   const backEl = q<HTMLElement>('back');
   const modalEl = q<HTMLElement>('modal');
@@ -131,6 +181,9 @@ export const mountMachi: GameMount = (host, ctx) => {
   const worldBtn = q<HTMLButtonElement>('world');
   const drawBtn = q<HTMLButtonElement>('draw');
   const peopleBtn = q<HTMLButtonElement>('people');
+  const shopBtn = q<HTMLButtonElement>('shop');
+  const reportBtn = q<HTMLButtonElement>('report');
+  const logBtn = q<HTMLButtonElement>('log');
 
   const g2d = stage.getContext('2d');
   if (!g2d) {
@@ -141,6 +194,7 @@ export const mountMachi: GameMount = (host, ctx) => {
 
   let state: MachiState = newState();
   let people: Person[] = [];
+  let reports: Report[] = [];
   let view: 'city' | 'world' = 'city';
   let selected: number | null = null;
   let coinAcc = 0;
@@ -150,6 +204,12 @@ export const mountMachi: GameMount = (host, ctx) => {
   let frame = 0;
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** いま 出ている 事件。canvas に しるしを 出すのと、二重に 出さない ための 目じるし。 */
+  let alarm: TownEvent | null = null;
+  /** つぎの 事件の 時こく。 */
+  let eventAt = 0;
+  /** 画面の 中の 後片付け（ゲージを 止めるなど）。modal を 閉じる ときに 呼ぶ。 */
+  let modalDispose: (() => void) | null = null;
   const t0 = performance.now();
   const cache = createSpriteCache();
 
@@ -179,6 +239,10 @@ export const mountMachi: GameMount = (host, ctx) => {
     if (!loaded) return;
     ctx.save.part('people').put(serializePeople(people));
   };
+  const persistReports = (): void => {
+    if (!loaded) return;
+    ctx.save.part('reports').put(serializeReports(reports));
+  };
 
   const toast = (text: string): void => {
     toastEl.textContent = text;
@@ -188,14 +252,19 @@ export const mountMachi: GameMount = (host, ctx) => {
   };
 
   const closeModal = (): void => {
+    if (modalDispose) modalDispose();
+    modalDispose = null;
     backEl.style.display = 'none';
     modalEl.replaceChildren();
   };
-  const openModal = (node: HTMLElement): void => {
+  const openModal = (node: HTMLElement, dispose?: () => void): void => {
+    if (modalDispose) modalDispose();
+    modalDispose = dispose ?? null;
     modalEl.replaceChildren(node);
     backEl.style.display = 'flex';
     modalEl.scrollTop = 0;
   };
+  const modalOpen = (): boolean => backEl.style.display === 'flex';
 
   /**
    * 点の のびを 記録に 出す。
@@ -325,10 +394,10 @@ export const mountMachi: GameMount = (host, ctx) => {
   const refreshBuilds = (): void => {
     buildsEl.replaceChildren();
     if (view === 'world') {
-      shopEl.style.display = 'none';
+      paletteEl.style.display = 'none';
       return;
     }
-    shopEl.style.display = '';
+    paletteEl.style.display = '';
     const occupied = selected !== null && tilesOf(state, here())[selected] !== null;
     if (occupied) {
       const btn = document.createElement('button');
@@ -414,9 +483,16 @@ export const mountMachi: GameMount = (host, ctx) => {
       max: PEOPLE_MAX,
       onNew: () => openEditor(null),
       onEdit: (person) => openEditor(person),
+      weapons: state.weapons,
       onMove: (person, cityId) => {
         person.city = cityId;
         persistPeople();
+        refresh();
+      },
+      onGive: (person, weaponId) => {
+        person.weapon = weaponId;
+        persistPeople();
+        openPeople();
         refresh();
       },
       onRemove: (person) => {
@@ -428,6 +504,146 @@ export const mountMachi: GameMount = (host, ctx) => {
       onClose: closeModal,
     }));
   };
+
+  const openShop = (): void => {
+    openModal(buildWeaponShop({
+      coins: state.coins,
+      owned: state.weapons,
+      people,
+      onBuy: (weapon) => {
+        if (state.coins < weapon.cost) return;
+        state.coins -= weapon.cost;
+        state.weapons[weapon.id] = (state.weapons[weapon.id] ?? 0) + 1;
+        // 買った ものは、この まちに すんでいて 手ぶらの 子に そのまま わたす。
+        // 「買ったのに なにも 変わらない」を 作らない。
+        const free = people.find((p) => p.city === here() && !p.weapon);
+        if (free) {
+          free.weapon = weapon.id;
+          persistPeople();
+        }
+        addLog(state, `${weapon.emoji} ${weapon.label}を かった`);
+        persist();
+        toast(free
+          ? `${weapon.label}を ${free.name}に わたした！`
+          : `${weapon.label}を かった。キャラの ところで わたせるよ`);
+        openShop();
+        refresh();
+      },
+      onClose: closeModal,
+    }));
+  };
+
+  const openReportEditor = (report: Report | null, readOnly: boolean): void => {
+    if (readOnly && report) {
+      const node = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'mc-mtitle';
+      title.textContent = report.title;
+      const when = document.createElement('p');
+      when.className = 'mc-power';
+      when.textContent = `${dateText(report.at)}・じんこう ${report.pop}人`;
+      const body = document.createElement('div');
+      body.className = 'mc-read';
+      body.textContent = report.body;
+      const row = document.createElement('div');
+      row.className = 'mc-row2';
+      const edit = document.createElement('button');
+      edit.className = 'mc-btn blue';
+      edit.textContent = '✏️ なおす';
+      edit.addEventListener('click', () => openReportEditor(report, false));
+      const back = document.createElement('button');
+      back.className = 'mc-btn gray';
+      back.textContent = 'もどる';
+      back.addEventListener('click', openReports);
+      row.append(edit, back);
+      node.append(title, when, body, row);
+      openModal(node);
+      return;
+    }
+    openModal(buildReportEditor({
+      report,
+      cityName: cityById(here()).name,
+      pop: worldPop(state),
+      coins: state.coins,
+      log: state.log,
+      onSave: (title, body) => {
+        if (report) {
+          report.title = title;
+          report.body = body;
+          report.at = Date.now();
+          report.pop = worldPop(state);
+        } else {
+          reports.unshift({
+            id: `r${Date.now().toString(36)}`,
+            title, body, at: Date.now(), pop: worldPop(state),
+          });
+          if (reports.length > REPORTS_MAX) reports.length = REPORTS_MAX;
+        }
+        persistReports();
+        toast('レポートを のこした！');
+        openReports();
+      },
+      onCancel: openReports,
+    }));
+  };
+
+  function openReports(): void {
+    openModal(buildReportList({
+      reports,
+      onNew: () => openReportEditor(null, false),
+      onOpen: (report) => openReportEditor(report, true),
+      onRemove: (report) => {
+        reports = reports.filter((r) => r.id !== report.id);
+        persistReports();
+        openReports();
+      },
+      onClose: closeModal,
+    }));
+  }
+
+  const openLog = (): void => {
+    const node = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'mc-mtitle';
+    title.textContent = '🔔 できごと';
+    const note = document.createElement('p');
+    note.className = 'mc-note';
+    note.textContent = `かった ${state.stats.won}かい ・ まけた ${state.stats.lost}かい`;
+    const list = document.createElement('div');
+    list.className = 'mc-loglist';
+    for (const entry of state.log) {
+      const row = document.createElement('div');
+      row.className = 'mc-logrow';
+      row.textContent = entry.text;
+      const when = document.createElement('span');
+      when.textContent = dateText(entry.at);
+      row.appendChild(when);
+      list.appendChild(row);
+    }
+    if (state.log.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'mc-note';
+      empty.textContent = 'まだ なにも おきていない。';
+      list.appendChild(empty);
+    }
+    const row = document.createElement('div');
+    row.className = 'mc-row2';
+    const write = document.createElement('button');
+    write.className = 'mc-btn';
+    write.textContent = '📓 レポートに かく';
+    write.addEventListener('click', () => openReportEditor(null, false));
+    const close = document.createElement('button');
+    close.className = 'mc-btn gray';
+    close.textContent = 'とじる';
+    close.addEventListener('click', closeModal);
+    row.append(write, close);
+    node.append(title, note, list, row);
+    openModal(node);
+  };
+
+  shopBtn.addEventListener('click', openShop);
+  reportBtn.addEventListener('click', openReports);
+  logBtn.addEventListener('click', openLog);
 
   worldBtn.addEventListener('click', () => {
     view = view === 'world' ? 'city' : 'world';
@@ -443,7 +659,9 @@ export const mountMachi: GameMount = (host, ctx) => {
   });
   peopleBtn.addEventListener('click', openPeople);
   backEl.addEventListener('click', (e) => {
-    if (e.target === backEl) closeModal();
+    // 事件の あいだは、そとを さわって 閉じられないように する。閉じられると
+    // 事件が 出たままで 止まり、つぎの 事件も こなくなる。
+    if (e.target === backEl && !alarm) closeModal();
   });
 
   stage.addEventListener('click', (e) => {
@@ -465,8 +683,87 @@ export const mountMachi: GameMount = (host, ctx) => {
     refresh();
   });
 
-  // ── 1びょうごと。コインが はいる。
+  // ── 事件
+  //
+  // ときどき 事件が おきる。ただし「見ていない ところ」では おこさない——地図を
+  // 見ている あいだや、べつの 画面を 開けている あいだに 進むと、もどったら コインが
+  // 減っていた、という 形に なる。そのときは 少し 先に のばす。
+  const EVENT_FIRST_MS = 40000;
+  const EVENT_MIN_MS = 45000;
+  const EVENT_SPAN_MS = 45000;
+
+  const scheduleEvent = (first = false): void => {
+    eventAt = Date.now() + (first ? EVENT_FIRST_MS : EVENT_MIN_MS + Math.random() * EVENT_SPAN_MS);
+  };
+
+  /** まちの たてものを 1つ こわす。まけた ときの そんがい。 */
+  const breakOne = (cityId: string): string | null => {
+    const tiles = tilesOf(state, cityId);
+    const at = tiles
+      .map((id, i) => (id ? i : -1))
+      .filter((i) => i >= 0);
+    if (at.length === 0) return null;
+    const pick = at[Math.floor(Math.random() * at.length)];
+    const label = buildingById(tiles[pick] ?? '')?.label ?? null;
+    tiles[pick] = null;
+    return label;
+  };
+
+  const finishEvent = (event: TownEvent, result: 'win' | 'lose' | 'run'): void => {
+    const cityId = here();
+    alarm = null;
+    scheduleEvent();
+
+    if (result === 'win') {
+      state.coins += event.prize;
+      if (event.kind !== 'good') state.stats.won++;
+      addLog(state, event.kind === 'good'
+        ? `${event.emoji} ${event.label}（🪙+${event.prize}）`
+        : `${event.emoji} ${event.label} に かった！（🪙+${event.prize}）`);
+      toast(`🪙+${event.prize}！`);
+    } else if (result === 'lose') {
+      state.stats.lost++;
+      const lost = Math.min(Math.floor(state.coins), event.damage);
+      state.coins -= lost;
+      const broke = event.breaks ? breakOne(cityId) : null;
+      addLog(state, `${event.emoji} ${event.label} に まけた……（🪙-${lost}`
+        + (broke ? `・${broke}が こわれた）` : '）'));
+      toast(broke ? `${broke}が こわれた……` : `🪙-${lost}……`);
+    } else {
+      const lost = Math.min(Math.floor(state.coins), Math.floor(event.damage * 0.3));
+      state.coins -= lost;
+      addLog(state, `${event.emoji} ${event.label} から にげた（🪙-${lost}）`);
+      toast('にげた！');
+    }
+
+    persist();
+    closeModal();
+    reportPop();
+    refresh();
+  };
+
+  const startEvent = (): void => {
+    const city = cityById(here());
+    const event = pickEvent(worldPop(state));
+    alarm = event;
+    const battle = buildBattle({
+      event,
+      cityName: city.name,
+      residents: residentsOf(people, city.id),
+      onDone: (result) => finishEvent(event, result),
+    });
+    openModal(battle.node, battle.dispose);
+  };
+
+  // ── 1びょうごと。コインが はいり、ときどき 事件が おきる。
   const tick = (): void => {
+    if (loaded && Date.now() >= eventAt) {
+      const busy = alarm !== null || modalOpen() || view !== 'city';
+      const empty = popOfCity(state, here()) === 0 && residentsOf(people, here()).length === 0;
+      if (busy || empty) eventAt = Date.now() + 15000;
+      else startEvent();
+    }
+
     const per10 = incomePer10s(state, people);
     if (per10 <= 0) return;
     coinAcc += per10 / 10;
@@ -495,6 +792,7 @@ export const mountMachi: GameMount = (host, ctx) => {
         residents: residentsOf(people, city.id),
         selected,
         t,
+        alarm: alarm ? alarm.emoji : null,
       });
     }
     frame = requestAnimationFrame(loop);
@@ -502,9 +800,10 @@ export const mountMachi: GameMount = (host, ctx) => {
 
   // ── 立ち上げ
   void (async () => {
-    const [mine, theirs] = await Promise.all([
+    const [mine, theirs, written] = await Promise.all([
       ctx.save.load(),
       ctx.save.part('people').load(),
+      ctx.save.part('reports').load(),
     ]);
     if (disposed) return;
     if (mine.ok && mine.state) {
@@ -516,7 +815,12 @@ export const mountMachi: GameMount = (host, ctx) => {
       const got = deserializePeople(theirs.state);
       if (got) people = got;
     }
+    if (written.ok && written.state) {
+      const got = deserializeReports(written.state);
+      if (got) reports = got;
+    }
     loaded = true;
+    scheduleEvent(true);
     startedAt = Date.now();
     reportedPop = worldPop(state);
     state.stats.maxPop = Math.max(state.stats.maxPop, reportedPop);
@@ -535,6 +839,8 @@ export const mountMachi: GameMount = (host, ctx) => {
     // いちばん 大きかった ところが 記録に のこる。
     if (loaded) reportPop(true);
     disposed = true;
+    if (modalDispose) modalDispose();
+    modalDispose = null;
     if (frame) cancelAnimationFrame(frame);
     if (tickTimer) clearInterval(tickTimer);
     if (toastTimer) clearTimeout(toastTimer);

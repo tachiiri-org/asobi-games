@@ -277,6 +277,8 @@ export type CityView = {
   readonly selected: number | null;
   /** うごきの もと（びょう）。歩く いちと ゆれに つかう。 */
   readonly t: number;
+  /** 事件の しるし。出ている あいだ、まちの 上に 大きく 出す。 */
+  readonly alarm?: string | null;
 };
 
 /** まちを 1まい 描く。 */
@@ -383,6 +385,23 @@ export const drawCity = (
     const bob = Math.abs(Math.sin((view.t * speed) / 9 + i)) * 3;
     drawPerson(g, cache, p, x, baseY - bob, size, dir === -1);
   });
+
+  // 事件。まちの 上に かぶせる。赤い ふちと、ゆれる しるしで「ふつうでは ない」のを
+  // ひとめで 分かるように する。
+  if (view.alarm) {
+    const edge = g.createLinearGradient(0, 0, 0, h);
+    edge.addColorStop(0, 'rgba(220,38,38,.45)');
+    edge.addColorStop(0.5, 'rgba(220,38,38,0)');
+    edge.addColorStop(1, 'rgba(220,38,38,.45)');
+    g.fillStyle = edge;
+    g.fillRect(0, 0, w, h);
+    g.save();
+    g.translate(w / 2 + Math.sin(view.t * 14) * 5, lay.skyH + 14 + Math.sin(view.t * 9) * 4);
+    g.font = `${Math.round(w * 0.2)}px system-ui,"Apple Color Emoji","Segoe UI Emoji",sans-serif`;
+    g.textAlign = 'center';
+    g.fillText(view.alarm, 0, 0);
+    g.restore();
+  }
 
   if (view.residents.length === 0) {
     g.font = `bold ${Math.round(Math.min(16, w * 0.035))}px 'Hiragino Maru Gothic ProN',system-ui,sans-serif`;
