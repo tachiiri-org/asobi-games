@@ -405,7 +405,7 @@ export const drawCity = (
     g.fillStyle = edge;
     g.fillRect(0, 0, w, h);
     g.save();
-    g.translate(w / 2 + Math.sin(view.t * 14) * 5, lay.skyH + 14 + Math.sin(view.t * 9) * 4);
+    g.translate(w / 2 + Math.sin(view.t * 9) * 2.5, lay.skyH + 14 + Math.sin(view.t * 6) * 2);
     g.font = `${Math.round(w * 0.2)}px system-ui,"Apple Color Emoji","Segoe UI Emoji",sans-serif`;
     g.textAlign = 'center';
     g.fillText(view.alarm, 0, 0);

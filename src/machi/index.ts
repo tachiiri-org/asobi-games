@@ -99,8 +99,9 @@ const CSS = `
   font-family:inherit;color:#78350f;background:#fffdf7;box-sizing:border-box;margin-top:3px}
 
 /* ── 事件 */
-.mc-bigmark{font-size:3.2rem;line-height:1.1;animation:mc-shake .5s infinite}
-@keyframes mc-shake{0%,100%{transform:translateX(-4px) rotate(-4deg)}50%{transform:translateX(4px) rotate(4deg)}}
+.mc-bigmark{font-size:3.2rem;line-height:1.1;animation:mc-shake .9s ease-in-out infinite}
+@keyframes mc-shake{0%,100%{transform:translateX(-2px) rotate(-2deg)}50%{transform:translateX(2px) rotate(2deg)}}
+@media (prefers-reduced-motion: reduce){.mc-bigmark{animation:none}}
 .mc-power{font-size:.78rem;font-weight:700;color:#b45309;margin:4px 0 6px}
 .mc-team{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:6px}
 .mc-teamone{position:relative;width:40px;height:40px}
@@ -310,9 +311,10 @@ export const mountMachi: GameMount = (host, ctx) => {
       ? `ひらいた まち ${state.opened.length}/${CITIES.length}`
       : `${city.country} ・ このまち ${popOfCity(state, city.id)}人 ・ すんでいる ${residentsOf(people, city.id).length}人`;
     const per10 = incomePer10s(state, people);
-    statsEl.innerHTML =
-      `🪙 ${Math.floor(state.coins)}<br>👥 ${worldPop(state)}人<br>`
+    // 毎びょう 呼ばれる ところなので、中身が 同じなら さわらない。
+    const html = `🪙 ${Math.floor(state.coins)}<br>👥 ${worldPop(state)}人<br>`
       + `<span style="font-size:.9em;opacity:.8">10びょうに +${per10.toFixed(1)}</span>`;
+    if (statsEl.innerHTML !== html) statsEl.innerHTML = html;
   };
 
   const refreshHint = (): void => {
@@ -405,9 +407,36 @@ export const mountMachi: GameMount = (host, ctx) => {
     openModal(node);
   };
 
+  /**
+   * 下の ボタンの 列を 書きなおす。
+   *
+   * コインは 毎びょう ふえるので、ここも 毎びょう 呼ばれる。中身が 同じでも 作り直すと、
+   * 9つの ボタンが 毎びょう 入れかわって、画面が ふるえて 見える（実さい そう 見えた）。
+   * 何が ならぶかを 1本の 文字（key）に して、変わった ときだけ 作り直す。
+   * 変わっていない ときは、買えるか どうかだけ 付けかえる。
+   */
+  let buildsKey = '';
+
+  const refreshAfford = (): void => {
+    for (const node of buildsEl.children) {
+      const card = node as HTMLButtonElement;
+      const cost = card.dataset.cost;
+      if (cost) card.disabled = state.coins < Number(cost);
+    }
+  };
+
   const refreshBuilds = (): void => {
-    buildsEl.replaceChildren();
     paletteEl.style.display = '';
+    const tilesHere = tilesOf(state, here());
+    const key = view === 'world'
+      ? `w|${here()}|${state.opened.join(',')}|${CITIES.map((c) => popOfCity(state, c.id)).join(',')}`
+      : `c|${here()}|${selected}|${selected === null ? '' : tilesHere[selected] ?? ''}`;
+    if (key === buildsKey) {
+      refreshAfford();
+      return;
+    }
+    buildsKey = key;
+    buildsEl.replaceChildren();
 
     // 地図の ときは、まちの ボタンを ならべる。
     //
@@ -457,6 +486,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     for (const b of buildingsFor(here())) {
       const card = document.createElement('button');
       card.className = 'mc-bcard';
+      card.dataset.cost = String(b.cost);
       card.disabled = state.coins < b.cost;
       const nm = document.createElement('span');
       nm.className = 'nm';
@@ -851,7 +881,7 @@ export const mountMachi: GameMount = (host, ctx) => {
       state.coins += add;
       persist();
       refreshHeader();
-      refreshBuilds();
+      refreshAfford();
     }
   };
 
