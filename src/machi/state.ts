@@ -19,6 +19,7 @@ export const newState = (): MachiState => ({
   tiles: { [CITIES[0].id]: new Array<string | null>(TILES).fill(null) },
   opened: [CITIES[0].id],
   weapons: {},
+  music: true,
   log: [],
   stats: { built: 0, drawn: 0, maxPop: 0, won: 0, lost: 0 },
 });
@@ -122,6 +123,7 @@ export const deserialize = (raw: string): MachiState | null => {
     // 事件・ぶき・レポートより まえの 保存にも、無い 欄が ある。欄が 1つ 欠けた
     // だけで 開けなくなる 形には しない。
     if (!state.weapons || typeof state.weapons !== 'object') state.weapons = {};
+    if (typeof state.music !== 'boolean') state.music = true;
     if (!Array.isArray(state.log)) state.log = [];
     state.log = state.log
       .filter((e) => e && typeof e.text === 'string' && typeof e.at === 'number')

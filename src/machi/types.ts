@@ -131,6 +131,8 @@ export type MachiState = {
   opened: string[];
   /** ぶきやで かった どうぐ。id → かず。 */
   weapons: Record<string, number>;
+  /** BGMを 鳴らすか。端末では なく その子の 持ちものなので、保存に のこす。 */
+  music: boolean;
   /** さいきんの できごと。新しいものが さき。30件まで。 */
   log: LogEntry[];
   stats: { built: number; drawn: number; maxPop: number; won: number; lost: number };

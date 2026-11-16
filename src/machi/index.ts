@@ -18,6 +18,7 @@ import {
   cityAt, createSpriteCache, drawCity, drawWorld, layoutOf, tileAt,
 } from './draw';
 import { buildBattle, pickEvent } from './events';
+import { createMusic } from './music';
 import { buildDrawEditor, buildPeopleList } from './people';
 import {
   REPORTS_MAX, buildReportEditor, buildReportList, dateText, deserializeReports,
@@ -41,6 +42,10 @@ const CSS = `
 .mc-city{font-weight:700;font-size:1.1rem;color:#78350f;line-height:1.2}
 .mc-sub{font-size:.68rem;color:#a16207}
 .mc-stats{text-align:right;font-weight:700;font-size:.8rem;color:#b45309;white-space:nowrap}
+.mc-statwrap{display:flex;align-items:flex-start;gap:6px}
+.mc-sound{background:#fef3c7;border:2px solid #b45309;border-radius:999px;width:30px;height:30px;
+  font-size:.9rem;line-height:1;cursor:pointer;padding:0;flex:none;font-family:inherit}
+.mc-sound.off{background:#e7e5e4;border-color:#a8a29e;filter:grayscale(1);opacity:.7}
 .mc-stage{display:block;width:100%;border-radius:12px;background:#bae6fd}
 .mc-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .mc-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px}
@@ -143,7 +148,10 @@ export const mountMachi: GameMount = (host, ctx) => {
   <div class="mc-panel">
     <div class="mc-top">
       <div><div class="mc-city" data-city>とうきょう</div><div class="mc-sub" data-sub>にほん</div></div>
-      <div class="mc-stats" data-stats>🪙 0<br>👥 0人</div>
+      <div class="mc-statwrap">
+        <button class="mc-sound" data-sound type="button" aria-label="おんがく">🔊</button>
+        <div class="mc-stats" data-stats>🪙 0<br>👥 0人</div>
+      </div>
     </div>
     <canvas class="mc-stage" data-stage></canvas>
     <div class="mc-row3">
@@ -184,6 +192,7 @@ export const mountMachi: GameMount = (host, ctx) => {
   const shopBtn = q<HTMLButtonElement>('shop');
   const reportBtn = q<HTMLButtonElement>('report');
   const logBtn = q<HTMLButtonElement>('log');
+  const soundBtn = q<HTMLButtonElement>('sound');
 
   const g2d = stage.getContext('2d');
   if (!g2d) {
@@ -206,6 +215,7 @@ export const mountMachi: GameMount = (host, ctx) => {
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   /** いま 出ている 事件。canvas に しるしを 出すのと、二重に 出さない ための 目じるし。 */
   let alarm: TownEvent | null = null;
+  const music = createMusic();
   /** つぎの 事件の 時こく。 */
   let eventAt = 0;
   /** 画面の 中の 後片付け（ゲージを 止めるなど）。modal を 閉じる ときに 呼ぶ。 */
@@ -252,6 +262,9 @@ export const mountMachi: GameMount = (host, ctx) => {
   };
 
   const closeModal = (): void => {
+    music.dispose();
+    document.removeEventListener('visibilitychange', onVisible);
+    wrap.removeEventListener('pointerdown', firstTouch);
     if (modalDispose) modalDispose();
     modalDispose = null;
     backEl.style.display = 'none';
@@ -431,6 +444,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     refreshHeader();
     refreshHint();
     refreshBuilds();
+    refreshSound();
     worldBtn.classList.toggle('on', view === 'world');
   };
 
@@ -641,6 +655,37 @@ export const mountMachi: GameMount = (host, ctx) => {
     openModal(node);
   };
 
+  // ── おんがく
+  //
+  // 鳴らすのは 指で さわった あと。ブラウザが そう 決めているので、立ち上げで
+  // 鳴らそうとしても 鳴らない。はじめて さわった ときに そっと 始める。
+  const refreshSound = (): void => {
+    soundBtn.textContent = state.music ? '🔊' : '🔇';
+    soundBtn.classList.toggle('off', !state.music);
+  };
+
+  const firstTouch = (): void => {
+    wrap.removeEventListener('pointerdown', firstTouch);
+    if (loaded && state.music) music.setOn(true);
+  };
+  wrap.addEventListener('pointerdown', firstTouch);
+
+  soundBtn.addEventListener('click', () => {
+    state.music = !state.music;
+    music.setOn(state.music);
+    persist();
+    refreshSound();
+    toast(state.music ? 'おんがくを つけた' : 'おんがくを けした');
+  });
+
+  // 画面を 見ていない あいだは 鳴らさない。タブを うらに したまま 鳴りつづけると、
+  // どこから 音が 出ているのか 分からなくなる。
+  const onVisible = (): void => {
+    if (document.hidden) music.setOn(false);
+    else if (state.music && loaded) music.setOn(true);
+  };
+  document.addEventListener('visibilitychange', onVisible);
+
   shopBtn.addEventListener('click', openShop);
   reportBtn.addEventListener('click', openReports);
   logBtn.addEventListener('click', openLog);
@@ -839,6 +884,9 @@ export const mountMachi: GameMount = (host, ctx) => {
     // いちばん 大きかった ところが 記録に のこる。
     if (loaded) reportPop(true);
     disposed = true;
+    music.dispose();
+    document.removeEventListener('visibilitychange', onVisible);
+    wrap.removeEventListener('pointerdown', firstTouch);
     if (modalDispose) modalDispose();
     modalDispose = null;
     if (frame) cancelAnimationFrame(frame);
