@@ -125,8 +125,10 @@ export const drawBuilding = (
   g.ellipse(cx, baseY, w * 0.46, w * 0.11, 0, 0, Math.PI * 2);
   g.fill();
 
-  g.strokeStyle = 'rgba(0,0,0,.35)';
-  g.lineWidth = 1.5;
+  // どの まちでも たてものが じめんから 浮いて 見えるように、こい ふちを つける。
+  // 色だけに たよると、じめんと 近い 色の たてものが とけて 見えなくなる。
+  g.strokeStyle = 'rgba(0,0,0,.5)';
+  g.lineWidth = Math.max(1.5, w * 0.05);
   let markY = baseY - w;
 
   if (b.shape === 'box') {
@@ -235,6 +237,7 @@ export const drawBuilding = (
     g.strokeRect(x, y, w, h);
     g.fillStyle = b.roof;
     g.fillRect(x, y - h * 0.3, w, h * 0.3);
+    g.strokeRect(x, y - h * 0.3, w, h * 0.3);
     markY = y - h * 0.4;
   } else if (b.shape === 'wall') {
     const h = w * 0.55;
@@ -246,6 +249,7 @@ export const drawBuilding = (
     g.fillStyle = b.roof;
     for (let i = 0; i < 4; i++) {
       g.fillRect(x + (w / 4) * i, y - h * 0.22, w * 0.15, h * 0.22);
+      g.strokeRect(x + (w / 4) * i, y - h * 0.22, w * 0.15, h * 0.22);
     }
     markY = y - h * 0.3;
   } else {
@@ -335,6 +339,11 @@ export const drawCity = (
       if (!b) continue;
       // うしろの 列ほど 小さく 描く。遠くに 見えるのと、手前に 隠れにくく なるのと、
       // ねらいは 2つ ある。
+      // しき地。たてものの 足もとを 1だん 明るく して、じめんと 切りはなす。
+      const px = lay.padX + c * lay.tileW;
+      const py = lay.gridTop + r * lay.tileH;
+      g.fillStyle = 'rgba(255,255,255,.3)';
+      g.fillRect(px + 2, py + 2, lay.tileW - 4, lay.tileH - 4);
       drawBuilding(
         g, b,
         lay.padX + (c + 0.5) * lay.tileW,

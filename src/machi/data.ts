@@ -49,17 +49,17 @@ export const CITIES: readonly City[] = [
   },
   {
     id: 'paris', name: 'パリ', country: 'フランス', needPop: 20,
-    sky: ['#93c5fd', '#fef3c7'], ground: '#fde68a', ground2: '#fcd34d',
+    sky: ['#93c5fd', '#fef3c7'], ground: '#94a3b8', ground2: '#cbd5e1',
     hello: 'ボンジュール！', lon: 2.3, lat: 48.9,
   },
   {
     id: 'newyork', name: 'ニューヨーク', country: 'アメリカ', needPop: 50,
-    sky: ['#60a5fa', '#dbeafe'], ground: '#cbd5e1', ground2: '#94a3b8',
+    sky: ['#60a5fa', '#dbeafe'], ground: '#64748b', ground2: '#475569',
     hello: 'ハロー！', lon: -74.0, lat: 40.7,
   },
   {
     id: 'cairo', name: 'カイロ', country: 'エジプト', needPop: 100,
-    sky: ['#fdba74', '#fef9c3'], ground: '#fcd34d', ground2: '#fbbf24',
+    sky: ['#fdba74', '#fef9c3'], ground: '#fcd34d', ground2: '#f59e0b',
     hello: 'アハラン！', lon: 31.2, lat: 30.0,
   },
   {
@@ -69,7 +69,7 @@ export const CITIES: readonly City[] = [
   },
   {
     id: 'delhi', name: 'デリー', country: 'インド', needPop: 260,
-    sky: ['#fcd34d', '#fff7ed'], ground: '#fed7aa', ground2: '#fdba74',
+    sky: ['#fcd34d', '#fff7ed'], ground: '#fb923c', ground2: '#f97316',
     hello: 'ナマステ！', lon: 77.2, lat: 28.6, labelDown: true,
   },
   {
@@ -79,7 +79,7 @@ export const CITIES: readonly City[] = [
   },
   {
     id: 'rio', name: 'リオデジャネイロ', country: 'ブラジル', needPop: 520,
-    sky: ['#38bdf8', '#fef9c3'], ground: '#fde68a', ground2: '#a7f3d0',
+    sky: ['#38bdf8', '#fef9c3'], ground: '#34d399', ground2: '#6ee7b7',
     hello: 'オイ！', lon: -43.2, lat: -22.9, labelDown: true,
   },
   {
@@ -120,12 +120,12 @@ export const BUILDINGS: readonly Building[] = [
 
   // ── ニューヨーク
   { id: 'liberty', label: 'じゆうのめがみ', cost: 600, pop: 26, coin: 26, shape: 'tower', body: '#5eead4', roof: '#0f766e', mark: '🗽', city: 'newyork', note: 'うみから 見える' },
-  { id: 'skyscraper', label: 'こうそうビル', cost: 700, pop: 40, coin: 24, shape: 'tower', body: '#94a3b8', roof: '#334155', mark: '🏙️', city: 'newyork', note: '40人 すめる' },
+  { id: 'skyscraper', label: 'こうそうビル', cost: 700, pop: 40, coin: 24, shape: 'tower', body: '#e2e8f0', roof: '#1e40af', mark: '🏙️', city: 'newyork', note: '40人 すめる' },
   { id: 'hotdog', label: 'ホットドッグやたい', cost: 180, pop: 5, coin: 14, shape: 'flat', body: '#fcd34d', roof: '#dc2626', mark: '🌭', city: 'newyork', note: 'いいにおい' },
 
   // ── カイロ
-  { id: 'pyramid', label: 'ピラミッド', cost: 650, pop: 28, coin: 26, shape: 'pyramid', body: '#fbbf24', roof: '#d97706', city: 'cairo', note: 'とても むかしの たてもの' },
-  { id: 'sphinx', label: 'スフィンクス', cost: 380, pop: 16, coin: 18, shape: 'flat', body: '#fcd34d', roof: '#b45309', mark: '🦁', city: 'cairo', note: 'ピラミッドを まもる' },
+  { id: 'pyramid', label: 'ピラミッド', cost: 650, pop: 28, coin: 26, shape: 'pyramid', body: '#d97706', roof: '#92400e', city: 'cairo', note: 'とても むかしの たてもの' },
+  { id: 'sphinx', label: 'スフィンクス', cost: 380, pop: 16, coin: 18, shape: 'flat', body: '#fde68a', roof: '#78350f', mark: '🦁', city: 'cairo', note: 'ピラミッドを まもる' },
   { id: 'palm', label: 'やしのき', cost: 60, pop: 2, coin: 5, shape: 'tree', body: '#166534', roof: '#4ade80', mark: '🌴', city: 'cairo', note: 'かげが できる' },
 
   // ── ペキン
@@ -144,7 +144,7 @@ export const BUILDINGS: readonly Building[] = [
   { id: 'market', label: 'マーケット', cost: 320, pop: 10, coin: 20, shape: 'flat', body: '#fca5a5', roof: '#b91c1c', mark: '🧺', city: 'nairobi', note: 'なんでも うっている' },
 
   // ── リオデジャネイロ
-  { id: 'corcovado', label: 'コルコバードの おか', cost: 780, pop: 32, coin: 30, shape: 'pyramid', body: '#86efac', roof: '#f8fafc', mark: '🗿', city: 'rio', note: 'たかい おかの うえ' },
+  { id: 'corcovado', label: 'コルコバードの おか', cost: 780, pop: 32, coin: 30, shape: 'pyramid', body: '#bbf7d0', roof: '#f8fafc', mark: '🗿', city: 'rio', note: 'たかい おかの うえ' },
   { id: 'beach', label: 'すなはま', cost: 200, pop: 4, coin: 16, shape: 'flat', body: '#fde68a', roof: '#38bdf8', mark: '🏖️', city: 'rio', note: 'うみで あそべる' },
   { id: 'carnival', label: 'カーニバルの やたい', cost: 360, pop: 12, coin: 22, shape: 'tent', body: '#f0abfc', roof: '#a21caf', mark: '🎺', city: 'rio', note: 'おんがくが きこえる' },
 

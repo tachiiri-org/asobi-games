@@ -64,6 +64,7 @@ const CSS = `
   cursor:pointer;text-align:center;font-family:inherit;transition:all .1s}
 .mc-bcard:active{transform:translateY(2px)}
 .mc-bcard[disabled]{opacity:.4;cursor:default}
+.mc-bcard.on{background:#fef3c7;box-shadow:0 0 0 3px #f59e0b}
 .mc-bcard .nm{display:block;font-weight:700;font-size:.72rem;color:#78350f}
 .mc-bcard .cost{display:block;font-size:.66rem;color:#b45309}
 .mc-bcard .gain{display:block;font-size:.6rem;color:#6b7280}
@@ -316,7 +317,7 @@ export const mountMachi: GameMount = (host, ctx) => {
 
   const refreshHint = (): void => {
     if (view === 'world') {
-      hintEl.textContent = 'いきたい まちを タップ。🔒 の まちは、せかいの じんこうが とどくと ひらく。';
+      hintEl.textContent = 'いきたい まちを 下の ボタンか 地図の 点から えらぼう。🔒 の まちは、せかいの じんこうが とどくと ひらく。';
       return;
     }
     if (selected === null) {
@@ -406,11 +407,43 @@ export const mountMachi: GameMount = (host, ctx) => {
 
   const refreshBuilds = (): void => {
     buildsEl.replaceChildren();
+    paletteEl.style.display = '';
+
+    // 地図の ときは、まちの ボタンを ならべる。
+    //
+    // 地図の 点だけだと 行けない まちが ある。とうきょうと ペキンは 画面の うえで
+    // 20てんほどしか はなれていないので、指が 少し ずれると となりの 国に 行く。
+    // 地図は 見る ためのもの、行く ための 道は この ボタンに する。
     if (view === 'world') {
-      paletteEl.style.display = 'none';
+      const pop = worldPop(state);
+      for (const city of CITIES) {
+        const open = state.opened.includes(city.id);
+        const card = document.createElement('button');
+        card.className = 'mc-bcard';
+        if (city.id === here()) card.classList.add('on');
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = open ? city.name : `🔒 ${city.name}`;
+        const sub = document.createElement('span');
+        sub.className = 'cost';
+        sub.textContent = city.country;
+        const gain = document.createElement('span');
+        gain.className = 'gain';
+        gain.textContent = open
+          ? `👥 ${popOfCity(state, city.id)}人`
+          : `せかいで ${city.needPop}人（あと ${Math.max(0, city.needPop - pop)}）`;
+        card.append(nm, sub, gain);
+        card.addEventListener('click', () => {
+          if (!open) {
+            toast(`${city.name}は せかいの じんこうが ${city.needPop}人に なると ひらく`);
+            return;
+          }
+          enterCity(city.id);
+        });
+        buildsEl.appendChild(card);
+      }
       return;
     }
-    paletteEl.style.display = '';
     const occupied = selected !== null && tilesOf(state, here())[selected] !== null;
     if (occupied) {
       const btn = document.createElement('button');
