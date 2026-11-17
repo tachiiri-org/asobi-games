@@ -276,7 +276,7 @@ export const mountMachi: GameMount = (host, ctx) => {
   const closeModal = (): void => {
     music.dispose();
     document.removeEventListener('visibilitychange', onVisible);
-    wrap.removeEventListener('pointerdown', firstTouch);
+    wrap.removeEventListener('pointerdown', onTouch);
     if (modalDispose) modalDispose();
     modalDispose = null;
     backEl.style.display = 'none';
@@ -355,6 +355,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     const back = Math.floor((b?.cost ?? 0) * BREAK_BACK);
     state.coins += back;
     persist();
+    music.sfx('move');
     toast(`こわした。🪙${back} もどってきた`);
     refresh();
   };
@@ -379,6 +380,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     tiles[selected] = b.id;
     state.stats.built++;
     persist();
+    music.sfx('build');
     toast(`${b.label} が できた！`);
     reportPop();
     checkOpen();
@@ -391,6 +393,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     if (!next) return;
     state.opened.push(next);
     persist();
+    music.sfx('win');
     const city = cityById(next);
     const node = document.createElement('div');
     const title = document.createElement('div');
@@ -527,6 +530,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     selected = null;
     persist();
     const city = cityById(id);
+    music.sfx('move');
     toast(`${city.name}（${city.country}）・ ${city.hello}`);
     refresh();
   };
@@ -554,6 +558,7 @@ export const mountMachi: GameMount = (host, ctx) => {
         persistPeople();
         cache.clear();
         closeModal();
+        music.sfx('draw');
         toast(person ? `${name} を かきなおした` : `${name} が ${cityById(here()).name}に ひっこしてきた！`);
         refresh();
       },
@@ -610,6 +615,7 @@ export const mountMachi: GameMount = (host, ctx) => {
         }
         addLog(state, `${weapon.emoji} ${weapon.label}を かった`);
         persist();
+        music.sfx('coin');
         toast(free
           ? `${weapon.label}を ${free.name}に わたした！`
           : `${weapon.label}を かった。キャラの ところで わたせるよ`);
@@ -667,6 +673,7 @@ export const mountMachi: GameMount = (host, ctx) => {
           if (reports.length > REPORTS_MAX) reports.length = REPORTS_MAX;
         }
         persistReports();
+        music.sfx('draw');
         toast('レポートを のこした！');
         openReports();
       },
@@ -735,20 +742,37 @@ export const mountMachi: GameMount = (host, ctx) => {
   const refreshSound = (): void => {
     soundBtn.textContent = state.music ? '🔊' : '🔇';
     soundBtn.classList.toggle('off', !state.music);
+    soundBtn.title = state.music ? '音を けす' : '音を つける';
   };
 
-  const firstTouch = (): void => {
-    wrap.removeEventListener('pointerdown', firstTouch);
-    if (loaded && state.music) music.setOn(true);
+  // さわる たびに 呼ぶ。1回目で 鳴らしはじめ、2回目からは 止まって いたら 起こす
+  // （iPhone は 画面を 離れると 音を 止める）。
+  const onTouch = (): void => {
+    if (!state.music || !loaded) return;
+    if (music.isOn()) music.wake();
+    else music.setOn(true);
   };
-  wrap.addEventListener('pointerdown', firstTouch);
+  wrap.addEventListener('pointerdown', onTouch);
 
   soundBtn.addEventListener('click', () => {
     state.music = !state.music;
     music.setOn(state.music);
     persist();
     refreshSound();
-    toast(state.music ? 'おんがくを つけた' : 'おんがくを けした');
+    if (!state.music) {
+      toast('🔇 音を けした');
+      return;
+    }
+    music.sfx('coin');
+    toast('🔊 音を つけた');
+    // つけたのに 音の 箱が 動かない ときは、端末の ほうで 止まっている。
+    // iPhone の よこの スイッチ（マナーモード）が いちばん 多い。
+    setTimeout(() => {
+      if (disposed || !state.music) return;
+      if (!music.running()) {
+        toast('音が 出ない ときは、マナーモードと おとの 大きさを たしかめてね');
+      }
+    }, 600);
   });
 
   // 画面を 見ていない あいだは 鳴らさない。タブを うらに したまま 鳴りつづけると、
@@ -838,6 +862,7 @@ export const mountMachi: GameMount = (host, ctx) => {
       addLog(state, event.kind === 'good'
         ? `${event.emoji} ${event.label}（🪙+${event.prize}）`
         : `${event.emoji} ${event.label} に かった！（🪙+${event.prize}）`);
+      music.sfx('win');
       toast(`🪙+${event.prize}！`);
     } else if (result === 'lose') {
       state.stats.lost++;
@@ -846,11 +871,13 @@ export const mountMachi: GameMount = (host, ctx) => {
       const broke = event.breaks ? breakOne(cityId) : null;
       addLog(state, `${event.emoji} ${event.label} に まけた……（🪙-${lost}`
         + (broke ? `・${broke}が こわれた）` : '）'));
+      music.sfx('lose');
       toast(broke ? `${broke}が こわれた……` : `🪙-${lost}……`);
     } else {
       const lost = Math.min(Math.floor(state.coins), Math.floor(event.damage * 0.3));
       state.coins -= lost;
       addLog(state, `${event.emoji} ${event.label} から にげた（🪙-${lost}）`);
+      music.sfx('move');
       toast('にげた！');
     }
 
@@ -864,6 +891,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     const city = cityById(here());
     const event = pickEvent(worldPop(state));
     alarm = event;
+    music.sfx('alarm');
     const battle = buildBattle({
       event,
       cityName: city.name,
@@ -943,6 +971,15 @@ export const mountMachi: GameMount = (host, ctx) => {
     reportedPop = worldPop(state);
     state.stats.maxPop = Math.max(state.stats.maxPop, reportedPop);
     refresh();
+    // ブラウザは さわるまで 音を 出さない。黙って いると「音が 出ない」に 見えるので、
+    // 1回だけ 知らせる。
+    if (state.music) {
+      setTimeout(() => {
+        if (!disposed && state.music && !music.running()) {
+          toast('🔊 画面を さわると 音が 鳴るよ');
+        }
+      }, 1200);
+    }
     if (state.stats.built === 0 && people.length === 0) {
       hintEl.textContent = 'まずは いえを 建てて、つぎに「キャラをかく」で すむ 子を かこう。';
     }
@@ -959,7 +996,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     disposed = true;
     music.dispose();
     document.removeEventListener('visibilitychange', onVisible);
-    wrap.removeEventListener('pointerdown', firstTouch);
+    wrap.removeEventListener('pointerdown', onTouch);
     if (modalDispose) modalDispose();
     modalDispose = null;
     if (frame) cancelAnimationFrame(frame);
