@@ -32,7 +32,7 @@ import {
 import type { MachiState, Person, Report, TownEvent } from './types';
 
 const CSS = `
-.mc{position:absolute;inset:0;overflow-y:auto;background:linear-gradient(#1e3a8a,#0f172a);
+.mc{position:absolute;inset:0;overflow-y:auto;scrollbar-gutter:stable;background:linear-gradient(#1e3a8a,#0f172a);
   color:#1f2937;-webkit-user-select:none;user-select:none;touch-action:manipulation;
   font:14px/1.6 'Hiragino Maru Gothic ProN','Arial Rounded MT Bold',system-ui,sans-serif}
 .mc-app{max-width:480px;margin:0 auto;padding:10px 10px 28px;box-sizing:border-box}
@@ -225,15 +225,25 @@ export const mountMachi: GameMount = (host, ctx) => {
   const t0 = performance.now();
   const cache = createSpriteCache();
 
-  // 画布は 置き場所の よこ幅から 取る。window から 取ると、プロダクトの 外枠の ぶん
-  // だけ はみ出す。
+  // 画布の 大きさ。
+  //
+  // よこは 置き場所の はばから 取る（window から 取ると、プロダクトの 外枠の ぶんだけ
+  // はみ出す）。画布じたいの はばからは 取らない——中が スクロールしはじめると
+  // スクロールバーの ぶんだけ はばが 変わり、それで 画布の 高さが 変わり、また
+  // はばが 変わる、という 輪に なって 画面が ゆれる。
+  //
+  // たては よこの 0.72ばい。小さな ずれで 行ったり 来たり しないように、少ししか
+  // 変わらない ときは さわらない。
   let cw = 320;
   let ch = 230;
   const resize = (): void => {
-    const w = Math.max(240, Math.round(stage.clientWidth || host.clientWidth || 320));
+    const box = wrap.clientWidth || host.clientWidth || 320;
+    const w = Math.max(240, Math.round(box - 20));
+    const h = Math.round(w * 0.72);
+    if (Math.abs(w - cw) < 2 && Math.abs(h - ch) < 4) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     cw = w;
-    ch = Math.round(w * 0.72);
+    ch = h;
     stage.width = Math.round(cw * dpr);
     stage.height = Math.round(ch * dpr);
     stage.style.height = `${ch}px`;
