@@ -42,13 +42,11 @@ const CSS = `
 .mc-city{font-weight:700;font-size:1.1rem;color:#78350f;line-height:1.2}
 .mc-sub{font-size:.68rem;color:#a16207}
 .mc-stats{text-align:right;font-weight:700;font-size:.8rem;color:#b45309;white-space:nowrap}
-.mc-statwrap{display:flex;align-items:flex-start;gap:6px}
-.mc-sound{background:#fef3c7;border:2px solid #b45309;border-radius:999px;width:30px;height:30px;
-  font-size:.9rem;line-height:1;cursor:pointer;padding:0;flex:none;font-family:inherit}
-.mc-sound.off{background:#e7e5e4;border-color:#a8a29e;filter:grayscale(1);opacity:.7}
+.mc-btn.off{background:#64748b;border-bottom-color:#334155;filter:grayscale(.4)}
 .mc-stage{display:block;width:100%;border-radius:12px;background:#bae6fd}
 .mc-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .mc-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px}
+.mc-row1{display:grid;gap:6px;margin-top:6px}
 .mc-btn{background:#f59e0b;color:#fff;padding:.5rem .3rem;font-size:.78rem;line-height:1.25;
   border:0;border-bottom:4px solid #b45309;border-radius:.7rem;font-weight:700;cursor:pointer;
   font-family:inherit;text-align:center;text-shadow:1px 1px 2px rgba(0,0,0,.3);transition:all .1s}
@@ -150,10 +148,7 @@ export const mountMachi: GameMount = (host, ctx) => {
   <div class="mc-panel">
     <div class="mc-top">
       <div><div class="mc-city" data-city>とうきょう</div><div class="mc-sub" data-sub>にほん</div></div>
-      <div class="mc-statwrap">
-        <button class="mc-sound" data-sound type="button" aria-label="おんがく">🔊</button>
-        <div class="mc-stats" data-stats>🪙 0<br>👥 0人</div>
-      </div>
+      <div class="mc-stats" data-stats>🪙 0<br>👥 0人</div>
     </div>
     <canvas class="mc-stage" data-stage></canvas>
     <div class="mc-row3">
@@ -165,6 +160,9 @@ export const mountMachi: GameMount = (host, ctx) => {
       <button class="mc-btn" data-shop style="background:#dc2626;border-bottom-color:#7f1d1d">⚔️ ぶきや</button>
       <button class="mc-btn" data-report style="background:#7c3aed;border-bottom-color:#5b21b6">📓 レポート</button>
       <button class="mc-btn gray" data-log>🔔 できごと</button>
+    </div>
+    <div class="mc-row1">
+      <button class="mc-btn" data-sound type="button">🔊 おと オン</button>
     </div>
   </div>
   <div class="mc-panel" data-palette>
@@ -703,6 +701,11 @@ export const mountMachi: GameMount = (host, ctx) => {
     const note = document.createElement('p');
     note.className = 'mc-note';
     note.textContent = `かった ${state.stats.won}かい ・ まけた ${state.stats.lost}かい`;
+    // 音が 鳴らない ときの 手がかり。ここを 見せて もらえば、どこで 止まって
+    // いるのかが 分かる。
+    const sound = document.createElement('p');
+    sound.className = 'mc-note';
+    sound.textContent = `おとの ようす：${state.music ? 'オン' : 'オフ'} ／ ${music.status()}`;
     const list = document.createElement('div');
     list.className = 'mc-loglist';
     for (const entry of state.log) {
@@ -720,6 +723,22 @@ export const mountMachi: GameMount = (host, ctx) => {
       empty.textContent = 'まだ なにも おきていない。';
       list.appendChild(empty);
     }
+    // 「running と 出ているのに 聞こえない」ときの 逃げ道。アプリの 中の ブラウザには、
+    // その場で 作る 音だけを 黙らせる ものが ある。
+    const other = document.createElement('button');
+    other.className = 'mc-btn blue';
+    other.textContent = '🔁 音を べつの やりかたで 鳴らす';
+    other.addEventListener('click', () => {
+      state.music = true;
+      persist();
+      refreshSound();
+      void music.forceFile().then((how) => {
+        if (disposed) return;
+        sound.textContent = `おとの ようす：オン ／ ${music.status()}`;
+        toast(how.startsWith('ok') ? '🔁 べつの やりかたで 鳴らしたよ' : `だめだった（${how}）`);
+      });
+    });
+
     const row = document.createElement('div');
     row.className = 'mc-row2';
     const write = document.createElement('button');
@@ -731,7 +750,7 @@ export const mountMachi: GameMount = (host, ctx) => {
     close.textContent = 'とじる';
     close.addEventListener('click', closeModal);
     row.append(write, close);
-    node.append(title, note, list, row);
+    node.append(title, note, sound, other, list, row);
     openModal(node);
   };
 
@@ -740,9 +759,8 @@ export const mountMachi: GameMount = (host, ctx) => {
   // 鳴らすのは 指で さわった あと。ブラウザが そう 決めているので、立ち上げで
   // 鳴らそうとしても 鳴らない。はじめて さわった ときに そっと 始める。
   const refreshSound = (): void => {
-    soundBtn.textContent = state.music ? '🔊' : '🔇';
+    soundBtn.textContent = state.music ? '🔊 おと オン' : '🔇 おと オフ（おすと 鳴る）';
     soundBtn.classList.toggle('off', !state.music);
-    soundBtn.title = state.music ? '音を けす' : '音を つける';
   };
 
   // さわる たびに 呼ぶ。1回目で 鳴らしはじめ、2回目からは 止まって いたら 起こす
@@ -763,16 +781,15 @@ export const mountMachi: GameMount = (host, ctx) => {
       toast('🔇 音を けした');
       return;
     }
-    music.sfx('coin');
-    toast('🔊 音を つけた');
-    // つけたのに 音の 箱が 動かない ときは、端末の ほうで 止まっている。
-    // iPhone の よこの スイッチ（マナーモード）が いちばん 多い。
-    setTimeout(() => {
+    // つけた ときは、かならず ためしに 鳴らす。その場で 作る 道と、音の ファイルの
+    // 道の 両方で 鳴らして、通った ほうを 知らせる。どちらも 通っているのに
+    // 聞こえない なら、端末の 側（マナーモード・音の 大きさ）が 止めている。
+    void music.test().then((how) => {
       if (disposed || !state.music) return;
-      if (!music.running()) {
-        toast('音が 出ない ときは、マナーモードと おとの 大きさを たしかめてね');
-      }
-    }, 600);
+      toast(music.running() || how.includes('ファイル音:ok')
+        ? '🔊 音を つけた。聞こえない ときは マナーモードと 音の 大きさを たしかめてね'
+        : `音を 出せなかった（${how}）`);
+    });
   });
 
   // 画面を 見ていない あいだは 鳴らさない。タブを うらに したまま 鳴りつづけると、
